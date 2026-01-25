@@ -1,0 +1,25 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: travelmate_db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: travelmate
+    ports:
+      - "5433:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      # Auto-run init script for dev convenience (only runs if db is empty)
+      - ./migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql
+      - ./migrations/002_add_accommodations.sql:/docker-entrypoint-initdb.d/002_add_accommodations.sql
+      - ./migrations/003_upgrade_itinerary_schema.sql:/docker-entrypoint-initdb.d/003_upgrade_itinerary_schema.sql
+      - ./migrations/004_add_price_history.sql:/docker-entrypoint-initdb.d/004_add_price_history.sql
+      - ./migrations/005_create_tourist_attractions.sql:/docker-entrypoint-initdb.d/005_create_tourist_attractions.sql
+      - ./migrations/006_update_system_prompts.sql:/docker-entrypoint-initdb.d/006_update_system_prompts.sql
+      - ./migrations/007_create_performance_metrics.sql:/docker-entrypoint-initdb.d/007_create_performance_metrics.sql
+      - ./migrations/008_update_prompts.sql:/docker-entrypoint-initdb.d/008_update_prompts.sql
+
+volumes:
+  db_data:
