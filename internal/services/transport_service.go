@@ -47,7 +47,6 @@ func (s *TransportService) SearchRealtimeTickets(ctx context.Context, origin, de
 	tickets := s.mockExternalAPI(origin, destination)
 
 	// 3. Learning (Simpan hasil Mock ke DB untuk masa depan)
-	// Ini yang sebelumnya bikin error. Sekarang aman karena pakai Repo.
 	go func() {
 		// Pakai background context agar tidak memblokir user
 		bgCtx := context.Background()
@@ -64,7 +63,6 @@ func (s *TransportService) SearchRealtimeTickets(ctx context.Context, origin, de
 				AvgDurationMins: mins,
 			}
 
-			// PANGGIL REPO (Bukan SQL raw lagi)
 			_ = s.Repo.SaveRoute(bgCtx, newRoute)
 		}
 	}()

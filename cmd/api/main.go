@@ -28,7 +28,7 @@ func main() {
 	accommodationRepo := repositories.NewAccommodationRepository(database)
 	attractionRepo := repositories.NewAttractionRepository(database)
 	perfRepo := repositories.NewPerformanceRepository(database)
-	perfRepo.PrintStartupDashboard() // Munculkan dashboard saat startup
+	perfRepo.PrintStartupDashboard()
 
 	// 4. Services (Dependency Injection)
 	promptService := services.NewPromptService(database)
@@ -46,8 +46,8 @@ func main() {
 
 	transportService := services.NewTransportService(transportRepo)
 
-	tripService := services.NewTripService(tripRepo, fbRepo, accommodationRepo, attractionRepo, perfRepo,
-		plannerEngine, locationService, transportService, imageSvc)
+	tripService := services.NewTripService(tripRepo, fbRepo, accommodationRepo, attractionRepo, transportRepo,
+		perfRepo, plannerEngine, locationService, transportService, imageSvc)
 
 	// 5. Handlers
 	tripHandler := handlers.NewTripHandler(tripService)

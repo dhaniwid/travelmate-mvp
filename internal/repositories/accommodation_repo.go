@@ -18,7 +18,6 @@ func NewAccommodationRepository(db *sql.DB) *AccommodationRepository {
 	return &AccommodationRepository{DB: db}
 }
 
-// SaveAccommodation menyimpan data hotel dengan "Upsert" (Update jika nama sama di kota sama)
 func (r *AccommodationRepository) SaveAccommodation(ctx context.Context, acc domain.Accommodation) error {
 	if acc.ID == "" {
 		acc.ID = uuid.New().String()

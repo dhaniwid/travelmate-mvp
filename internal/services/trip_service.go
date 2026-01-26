@@ -18,6 +18,7 @@ type TripService struct {
 	FeedbackRepo   *repositories.FeedbackRepository
 	AccomRepo      *repositories.AccommodationRepository
 	AttractionRepo *repositories.AttractionRepository
+	TransportRepo  *repositories.TransportRepository
 	PerfRepo       *repositories.PerformanceRepository
 	Planner        PlannerEngine
 	TransportServ  *TransportService
@@ -30,6 +31,7 @@ func NewTripService(
 	fr *repositories.FeedbackRepository,
 	ar *repositories.AccommodationRepository,
 	attractionRepo *repositories.AttractionRepository,
+	transRepo *repositories.TransportRepository,
 	perfRepo *repositories.PerformanceRepository,
 	p PlannerEngine,
 	locS *LocationService,
@@ -41,6 +43,7 @@ func NewTripService(
 		FeedbackRepo:   fr,
 		AccomRepo:      ar,
 		AttractionRepo: attractionRepo,
+		TransportRepo:  transRepo,
 		PerfRepo:       perfRepo,
 		Planner:        p,
 		TransportServ:  transportS,
@@ -162,14 +165,17 @@ func (s *TripService) GenerateTripStream(ctx context.Context, trip domain.Trip, 
 	// TASK 2: Logistics & ASYNC Images
 	go func() {
 		defer wg.Done()
-		// AI Generate Logistics (Transport + Stay)
 		plan, err := s.Planner.GenerateTransportAndStay(ctx, trip)
+		if err != nil {
+			log.Printf("❌ [TASK 2 FAILED] Logistics generation error: %v", err)
+			return
+		}
 		if err == nil {
 			s.sendEvent(eventChan, "logistics", plan)
 
 			go func() {
 				//s.enrichWithImages(&plan)
-				s.sendEvent(eventChan, "logistics_update", plan) // Update UI dengan gambar
+				//s.sendEvent(eventChan, "logistics_update", plan) // Update UI dengan gambar
 
 				mu.Lock()
 				finalPlan = plan
@@ -180,7 +186,6 @@ func (s *TripService) GenerateTripStream(ctx context.Context, trip domain.Trip, 
 
 	wg.Wait()
 
-	// Finalisasi metadata
 	finalPlan.TripID = trip.ID
 	finalPlan.Itinerary = finalItinerary
 
@@ -194,22 +199,34 @@ func (s *TripService) GenerateTripStream(ctx context.Context, trip domain.Trip, 
 
 func (s *TripService) FinalizeAndSaveToDB(trip domain.Trip, plan domain.TripPlan) {
 	ctx := context.Background()
+
+	// 1. Simpan Trip Plan user
 	_ = s.TripRepo.SaveTripPlan(ctx, trip, plan)
+
+	// 2. Mining Accommodations (Seed DB)
 	go s.mineAccommodations(ctx, trip.LocationID, plan.AccommodationOptions)
+
+	// 3. Mining Attractions (Seed DB)
 	go s.mineAttractions(ctx, trip.LocationID, plan.Itinerary)
+
+	// 4. Mining Transports (Seed DB) - NEW!
+	go s.mineTransports(ctx, trip.Origin, trip.Destination, plan.TransportOptions)
 }
 
-func (s *TripService) enrichWithImages(plan *domain.TripPlan) {
-	var wg sync.WaitGroup
-	for i := range plan.AccommodationOptions {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			query := fmt.Sprintf("%s %s hotel", plan.AccommodationOptions[idx].Name, plan.AccommodationOptions[idx].LocationArea)
-			plan.AccommodationOptions[idx].ImageURL = s.ImageSvc.SearchImage(query)
-		}(i)
+func (s *TripService) mineTransports(ctx context.Context, origin, dest string, transports []domain.TransportOption) {
+	if origin == "" || dest == "" {
+		return
 	}
-	wg.Wait()
+
+	log.Printf("⛏️ Mining %d transport options for route %s -> %s", len(transports), origin, dest)
+
+	for _, t := range transports {
+		// Panggil Repo untuk Upsert
+		err := s.TransportRepo.UpsertTransportOption(ctx, t, origin, dest)
+		if err != nil {
+			log.Printf("⚠️ Failed to seed transport: %v", err)
+		}
+	}
 }
 
 func (s *TripService) mineAttractions(ctx context.Context, locID string, itinerary []domain.ItineraryDay) {
@@ -233,7 +250,7 @@ func (s *TripService) mineAccommodations(ctx context.Context, locID string, acco
 	}
 	for _, a := range accoms {
 		_ = s.AccomRepo.SaveAccommodation(ctx, domain.Accommodation{
-			LocationID: locID, Name: a.Name, Type: a.Type, PricePerNight: a.PricePerNight, ImageURL: a.ImageURL,
+			LocationID: locID, Name: a.Name, Type: a.Type, Rating: a.Rating, PricePerNight: a.PricePerNight, ImageURL: a.ImageURL,
 		})
 	}
 }
@@ -269,4 +286,17 @@ func (s *TripService) SubmitFeedback(ctx context.Context, tripID string, req dom
 	req.TripID = tripID
 	req.CreatedAt = time.Now()
 	return s.FeedbackRepo.CreateFeedback(ctx, req)
+}
+
+func (s *TripService) enrichWithImages(plan *domain.TripPlan) {
+	var wg sync.WaitGroup
+	for i := range plan.AccommodationOptions {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			query := fmt.Sprintf("%s %s hotel", plan.AccommodationOptions[idx].Name, plan.AccommodationOptions[idx].LocationArea)
+			plan.AccommodationOptions[idx].ImageURL = s.ImageSvc.SearchImage(query)
+		}(i)
+	}
+	wg.Wait()
 }

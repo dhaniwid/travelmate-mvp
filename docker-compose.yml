@@ -20,6 +20,8 @@ services:
       - ./migrations/006_update_system_prompts.sql:/docker-entrypoint-initdb.d/006_update_system_prompts.sql
       - ./migrations/007_create_performance_metrics.sql:/docker-entrypoint-initdb.d/007_create_performance_metrics.sql
       - ./migrations/008_update_prompts.sql:/docker-entrypoint-initdb.d/008_update_prompts.sql
+      - ./migrations/009_create_users_table.sql:/docker-entrypoint-initdb.d/009_create_users_table.sql
+      - ./migrations/010_create_transport_seed_options.sql:/docker-entrypoint-initdb.d/010_create_transport_seed_options.sql
 
 volumes:
   db_data:

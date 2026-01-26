@@ -48,11 +48,13 @@ type ItineraryDay struct {
 
 // Activity: Detail per aktivitas (Sesuai rencana enrichment)
 type Activity struct {
-	Time        string `json:"time"`        // "09:00 - 10:00"
-	Activity    string `json:"activity"`    // Nama aktivitas
-	Type        string `json:"type"`        // Culinary, Sightseeing, etc
-	Description string `json:"description"` // Penjelasan singkat
-	PlaceName   string `json:"place_name"`  // Nama tempat (untuk Google Maps)
+	Time        string  `json:"time"`        // "09:00 - 10:00"
+	Activity    string  `json:"activity"`    // Nama aktivitas
+	Type        string  `json:"type"`        // Culinary, Sightseeing, etc
+	Description string  `json:"description"` // Penjelasan singkat
+	PlaceName   string  `json:"place_name"`  // Nama tempat (untuk Google Maps)
+	Latitude    float64 `json:"latitude"`    // Contoh: -6.9175
+	Longitude   float64 `json:"longitude"`   // Contoh: 107.6191
 }
 
 type TouristAttraction struct {
@@ -70,11 +72,11 @@ type TouristAttraction struct {
 // ==========================================
 
 type BudgetBreakdown struct {
-	Transport     int64 `json:"transport"`
-	Accommodation int64 `json:"accommodation"`
-	Food          int64 `json:"food"`
-	Tickets       int64 `json:"tickets"`
-	Misc          int64 `json:"misc"`
+	Transport     FlexibleInt64 `json:"transport"`
+	Accommodation FlexibleInt64 `json:"accommodation"`
+	Food          FlexibleInt64 `json:"food"`
+	Tickets       FlexibleInt64 `json:"tickets"`
+	Misc          FlexibleInt64 `json:"misc"`
 }
 
 // TransportOption: Struktur untuk opsi transport dari AI
