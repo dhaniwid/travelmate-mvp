@@ -10,6 +10,7 @@ import (
 
 type Trip struct {
 	ID          string    `json:"id"`
+	UserID      string    `json:"user_id"` // ID dari Clerk
 	LocationID  string    `json:"location_id"`
 	Origin      string    `json:"origin"`
 	Destination string    `json:"destination"`

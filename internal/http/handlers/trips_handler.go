@@ -120,3 +120,41 @@ func (h *TripHandler) ListTrips(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"data": trips})
 }
+
+// SaveTrip menangani POST /api/trips
+func (h *TripHandler) SaveTrip(c *gin.Context) {
+	var req domain.Trip
+
+	// 1. Bind JSON
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, domain.APIError{
+			Code:    "validation_error",
+			Message: "Invalid request body: " + err.Error(),
+		})
+		return
+	}
+
+	// 2. Validasi ID User (Wajib ada dari Clerk)
+	if req.UserID == "" {
+		c.JSON(http.StatusUnauthorized, domain.APIError{
+			Code:    "unauthorized",
+			Message: "User ID is missing",
+		})
+		return
+	}
+
+	// 3. Panggil Service
+	if err := h.Service.SaveUserTrip(c.Request.Context(), &req); err != nil {
+		c.JSON(http.StatusInternalServerError, domain.APIError{
+			Code:    "internal_error",
+			Message: "Failed to save trip: " + err.Error(),
+		})
+		return
+	}
+
+	// 4. Response Sukses
+	c.JSON(http.StatusCreated, gin.H{
+		"message": "Trip saved successfully",
+		"trip_id": req.ID,
+	})
+}

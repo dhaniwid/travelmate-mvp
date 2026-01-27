@@ -17,10 +17,9 @@ func SetupRouter(tripHandler *handlers.TripHandler, fbHandler *handlers.Feedback
 
 	// 🛠️ CONFIG CORS OPTIMIZED FOR SSE
 	r.Use(cors.New(cors.Config{
-		AllowOrigins: []string{"*"}, // Di production, ganti dengan domain frontend Anda
-		AllowMethods: []string{"GET", "POST", "OPTIONS", "PUT"},
-		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
-		// Penting untuk SSE: Izinkan browser membaca headers berikut
+		AllowOrigins:     []string{"*"}, // Di production, ganti dengan domain frontend
+		AllowMethods:     []string{"GET", "POST", "OPTIONS", "PUT"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
 		ExposeHeaders:    []string{"Content-Length", "Connection", "Cache-Control", "Transfer-Encoding"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
@@ -37,6 +36,9 @@ func SetupRouter(tripHandler *handlers.TripHandler, fbHandler *handlers.Feedback
 
 			// POST /api/v1/trips -> Legacy/Non-streaming creation
 			v1.POST("/trips", tripHandler.CreateTrip)
+
+			// Endpoint ini khusus untuk menyimpan hasil trip yang sudah direview user di Frontend
+			v1.POST("/trips/save", tripHandler.SaveTrip)
 
 			// GET /api/v1/trips -> List semua trip
 			v1.GET("/trips", tripHandler.ListTrips)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"travelmate/internal/domain"
 )
 
@@ -59,40 +60,53 @@ func (r *TripRepository) SavePlan(ctx context.Context, plan domain.TripPlan) err
 	return err
 }
 
-// Parameter ID string
 func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domain.TripAndPlan, error) {
-	tripQuery := `SELECT id, destination, origin, budget, start_date, trip_days, style FROM trips WHERE id = $1`
+	query := `
+        SELECT 
+            id, user_id, location_id, destination, origin, 
+            start_date, trip_days, style, budget, budget_range, 
+            is_public, created_at, plan_data 
+        FROM trips
+        WHERE id = $1
+    `
 
 	var trip domain.Trip
-	err := r.DB.QueryRowContext(ctx, tripQuery, id).Scan(
-		&trip.ID, &trip.Destination, &trip.Origin, &trip.Budget,
-		&trip.StartDate, &trip.TripDays, &trip.Style,
+	var planDataRaw []byte
+
+	err := r.DB.QueryRowContext(ctx, query, id).Scan(
+		&trip.ID,
+		&trip.UserID,
+		&trip.LocationID,
+		&trip.Destination,
+		&trip.Origin,
+		&trip.StartDate,
+		&trip.TripDays,
+		&trip.Style,
+		&trip.Budget,
+		&trip.BudgetRange,
+		&trip.IsPublic,
+		&trip.CreatedAt,
+		&planDataRaw,
 	)
+
 	if err == sql.ErrNoRows {
 		return nil, nil
-	} else if err != nil {
-		return nil, err
 	}
-
-	planQuery := `SELECT itinerary, budget_breakdown, transport_options, accommodation_options, decision_notes FROM trip_plans WHERE trip_id = $1`
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan trip: %w", err)
+	}
 
 	var plan domain.TripPlan
-	var itinRaw, budgetRaw, transRaw, accomRaw, notesRaw []byte
-
-	err = r.DB.QueryRowContext(ctx, planQuery, id).Scan(
-		&itinRaw, &budgetRaw, &transRaw, &accomRaw, &notesRaw,
-	)
-
-	if err == nil {
-		_ = json.Unmarshal(itinRaw, &plan.Itinerary)
-		_ = json.Unmarshal(budgetRaw, &plan.BudgetBreakdown)
-		_ = json.Unmarshal(transRaw, &plan.TransportOptions)
-		_ = json.Unmarshal(accomRaw, &plan.AccommodationOptions)
-		_ = json.Unmarshal(notesRaw, &plan.DecisionNotes)
-		plan.TripID = trip.ID
+	if len(planDataRaw) > 0 {
+		if err := json.Unmarshal(planDataRaw, &plan); err != nil {
+			fmt.Printf("Warning: Failed to unmarshal plan data: %v\n", err)
+		}
 	}
 
-	return &domain.TripAndPlan{Trip: trip, Plan: plan}, nil
+	return &domain.TripAndPlan{
+		Trip: trip,
+		Plan: plan,
+	}, nil
 }
 
 func (r *TripRepository) GetAllTrips(ctx context.Context) ([]domain.Trip, error) {
@@ -200,4 +214,44 @@ func (r *TripRepository) GetExistingPlanByCriteria(ctx context.Context, destinat
 	_ = json.Unmarshal(decisionNotes, &plan.DecisionNotes)
 
 	return &plan, nil
+}
+
+func (r *TripRepository) Create(ctx context.Context, trip *domain.Trip) error {
+	// 1. Convert struct PlanData menjadi JSON string untuk disimpan di kolom JSONB
+	planJson, err := json.Marshal(trip.PlanData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal plan data: %w", err)
+	}
+
+	query := `
+		INSERT INTO trips (
+			id, user_id, location_id, destination, origin, 
+			start_date, trip_days, style, budget, budget_range, 
+			plan_data, created_at
+		) VALUES (
+			$1, $2, $3, $4, $5, 
+			$6, $7, $8, $9, $10, 
+			$11, NOW()
+		)
+	`
+
+	_, err = r.DB.ExecContext(ctx, query,
+		trip.ID,          // $1
+		trip.UserID,      // $2 (Ini ID dari Clerk)
+		trip.LocationID,  // $3
+		trip.Destination, // $4
+		trip.Origin,      // $5
+		trip.StartDate,   // $6
+		trip.TripDays,    // $7
+		trip.Style,       // $8
+		trip.Budget,      // $9
+		trip.BudgetRange, // $10
+		planJson,         // $11 (JSONB)
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to insert trip: %w", err)
+	}
+
+	return nil
 }

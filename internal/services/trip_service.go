@@ -300,3 +300,19 @@ func (s *TripService) enrichWithImages(plan *domain.TripPlan) {
 	}
 	wg.Wait()
 }
+
+// SaveUserTrip SaveUserTrip: Menyimpan trip final yang dikirim oleh user (setelah review di frontend)
+func (s *TripService) SaveUserTrip(ctx context.Context, trip *domain.Trip) error {
+	// 1. Pastikan ID ada (jika frontend lupa kirim)
+	if trip.ID == "" {
+		trip.ID = uuid.New().String()
+	}
+
+	// 2. Set waktu
+	if trip.CreatedAt.IsZero() {
+		trip.CreatedAt = time.Now()
+	}
+
+	// 3. Panggil Repository
+	return s.TripRepo.Create(ctx, trip)
+}
