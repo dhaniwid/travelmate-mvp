@@ -18,7 +18,9 @@ type Trip struct {
 	Style       string    `json:"style"`        // relaxed, fast, cultural
 	BudgetRange string    `json:"budget_range"` // e.g. "2.8-3.2jt"
 	Budget      int64     `json:"budget"`       // Changed to int64 for consistency
+	IsPublic    bool      `json:"is_public" db:"is_public"`
 	CreatedAt   time.Time `json:"created_at"`
+	PlanData    *TripPlan `json:"plan_data,omitempty" db:"plan_data"`
 }
 
 type TripPlan struct {
