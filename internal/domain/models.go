@@ -39,22 +39,41 @@ type TripAndPlan struct {
 // 2. ITINERARY DETAILS
 // ==========================================
 
-// ItineraryDay: Mewakili satu hari perjalanan
 type ItineraryDay struct {
-	Day        int        `json:"day"`
-	Title      string     `json:"title"`
-	Activities []Activity `json:"activities"` // Upgraded from []string to []Activity
+	Day             int             `json:"day"`
+	Title           string          `json:"title"`
+	MorningBriefing MorningBriefing `json:"morning_briefing"` // <-- NEW: Contextual Intelligence
+	Activities      []Activity      `json:"activities"`
 }
 
-// Activity: Detail per aktivitas (Sesuai rencana enrichment)
+type MorningBriefing struct {
+	WeatherForecast string `json:"weather_forecast"` // e.g. "Sunny, 28°C"
+	OutfitTip       string `json:"outfit_tip"`       // e.g. "Wear light cotton"
+	LocalVibe       string `json:"local_vibe"`       // e.g. "Busy market day"
+}
+
 type Activity struct {
-	Time        string  `json:"time"`        // "09:00 - 10:00"
-	Activity    string  `json:"activity"`    // Nama aktivitas
-	Type        string  `json:"type"`        // Culinary, Sightseeing, etc
-	Description string  `json:"description"` // Penjelasan singkat
-	PlaceName   string  `json:"place_name"`  // Nama tempat (untuk Google Maps)
-	Latitude    float64 `json:"latitude"`    // Contoh: -6.9175
-	Longitude   float64 `json:"longitude"`   // Contoh: 107.6191
+	Time        string `json:"time"`
+	Activity    string `json:"activity"`
+	Type        string `json:"type"`
+	Description string `json:"description"`
+	PlaceName   string `json:"place_name"`
+
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+
+	TransitTime   string `json:"transit_time"`   // e.g. "15 min"
+	TransitMethod string `json:"transit_method"` // e.g. "Walk" or "Taxi"
+	TransitPrice  int64  `json:"transit_price"`  // Estimasi biaya transport lokal (IDR)
+
+	Alternative *ActivityAlternative `json:"alternative,omitempty"`
+}
+
+type ActivityAlternative struct {
+	Activity    string `json:"activity"`
+	Type        string `json:"type"`
+	Description string `json:"description"`
+	PlaceName   string `json:"place_name"`
 }
 
 type TouristAttraction struct {
