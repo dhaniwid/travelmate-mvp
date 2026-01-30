@@ -24,6 +24,13 @@ func NewPromptService(db *sql.DB) *PromptService {
 	}
 }
 
+type AlternativesPromptData struct {
+	Destination     string
+	CurrentActivity string
+	Location        string
+	Tags            string
+}
+
 // GetRenderedPrompt mengambil template aktif, lalu mengisi variabelnya
 func (s *PromptService) GetRenderedPrompt(ctx context.Context, key string, data interface{}) (string, error) {
 	// 1. Cek Cache dulu
@@ -83,4 +90,21 @@ func (s *PromptService) RefreshCache() {
 	defer s.mutex.Unlock()
 	s.cache = make(map[string]string)
 	log.Println("🧹 Prompt cache cleared")
+}
+
+func (s *PromptService) GetAlternativesPrompt(ctx context.Context, dest, activity, location string, tags []string) (string, error) {
+	tagsStr := "varied styles"
+	if len(tags) > 0 {
+		tagsStr = fmt.Sprintf("these specific styles: %v", tags)
+	}
+
+	// Siapkan data
+	data := AlternativesPromptData{
+		Destination:     dest,
+		CurrentActivity: activity,
+		Location:        location,
+		Tags:            tagsStr,
+	}
+
+	return s.GetRenderedPrompt(ctx, "generate_alternatives", data)
 }

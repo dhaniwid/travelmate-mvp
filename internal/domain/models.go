@@ -22,15 +22,24 @@ type Trip struct {
 	IsPublic    bool      `json:"is_public" db:"is_public"`
 	CreatedAt   time.Time `json:"created_at"`
 	PlanData    *TripPlan `json:"plan_data,omitempty" db:"plan_data"`
+	Status      string    `json:"status"` // "DRAFT", "UPCOMING", "COMPLETED"
 }
 
 type TripPlan struct {
-	TripID               string                `json:"trip_id"`
-	Itinerary            []ItineraryDay        `json:"itinerary"`
-	BudgetBreakdown      BudgetBreakdown       `json:"budget_breakdown"`
-	TransportOptions     []TransportOption     `json:"transport_options"`     // Renamed to Singular
-	AccommodationOptions []AccommodationOption `json:"accommodation_options"` // Renamed to Singular
+	TripID          string          `json:"trip_id"`
+	Itinerary       []ItineraryDay  `json:"itinerary"`
+	BudgetBreakdown BudgetBreakdown `json:"budget_breakdown"`
+	/// Logistics Section
+	LogisticsContext     LogisticsContext      `json:"logistics_context"`
+	TransportOptions     []TransportOption     `json:"transport_options"`
+	AccommodationOptions []AccommodationOption `json:"strategic_accommodation"`
 	DecisionNotes        []string              `json:"decision_notes"`
+	PackingList          []PackingItem         `json:"packing_list"` // The new AI feature!
+}
+
+type PackingItem struct {
+	Category string   `json:"category"` // Contoh: "Clothing", "Toiletries"
+	Items    []string `json:"items"`    // Contoh: ["T-Shirt", "Jacket", "Jeans"]
 }
 
 type TripAndPlan struct {
@@ -69,7 +78,7 @@ type Activity struct {
 	TransitMethod string `json:"transit_method"` // e.g. "Walk" or "Taxi"
 	TransitPrice  int64  `json:"transit_price"`  // Estimasi biaya transport lokal (IDR)
 
-	Alternative *ActivityAlternative `json:"alternative,omitempty"`
+	Alternatives []ActivityAlternative `json:"alternatives,omitempty"`
 }
 
 type ActivityAlternative struct {
@@ -101,25 +110,42 @@ type BudgetBreakdown struct {
 	Misc          FlexibleInt64 `json:"misc"`
 }
 
-// TransportOption: Struktur untuk opsi transport dari AI
-type TransportOption struct {
-	Type          string `json:"type"` // Flight, Train, Bus
-	Name          string `json:"name"` // Garuda, Whoosh
-	Price         int64  `json:"price"`
-	EstimatedTime string `json:"estimated_time"`
-	Pros          string `json:"pros"`
+// 1. New Helper Structs (Nested Objects)
+type TransportBreakdown struct {
+	FirstMile string `json:"first_mile"` // e.g., "Taxi to Halim (45m)"
+	MainLeg   string `json:"main_leg"`   // e.g., "Whoosh to Padalarang (30m)"
+	LastMile  string `json:"last_mile"`  // e.g., "Feeder to City (20m)"
 }
 
-// AccommodationOption: Struktur untuk opsi hotel dari AI
+type HubDetails struct {
+	DepartureNode string `json:"departure_node"` // e.g., "Halim Station"
+	ArrivalNode   string `json:"arrival_node"`   // e.g., "Padalarang Station"
+}
+
+type LogisticsContext struct {
+	DistanceKM   int    `json:"distance_km"`
+	RouteType    string `json:"route_type"`    // e.g., "Inter-City" | "Inter-Island"
+	WarningAlert string `json:"warning_alert"` // e.g., "Heavy traffic on Friday"
+}
+
+// 2. Updated Transport Option
+type TransportOption struct {
+	StrategyTag          string             `json:"strategy_tag"` // CEPAT | HEMAT
+	Name                 string             `json:"name"`
+	PriceTier            string             `json:"price_tier"`             // LOW | MED | HIGH
+	TotalDurationDisplay string             `json:"total_duration_display"` // Ganti estimated_time
+	Breakdown            TransportBreakdown `json:"breakdown"`
+	OperatorsHint        string             `json:"operators_hint"` // NEW: "Garuda, Citilink"
+	BookingQuery         string             `json:"booking_query"`  // NEW: "flight jakarta to bali"
+	Pros                 string             `json:"pros"`
+}
+
+// 3. Updated Accommodation Option
 type AccommodationOption struct {
-	Name          string `json:"name"`
-	Type          string `json:"type"`
-	Rating        string `json:"rating"`
-	PricePerNight int64  `json:"price_per_night"`
-	LocationArea  string `json:"location_area"`
-	Description   string `json:"description"`
-	LocationNote  string `json:"location_note"`
-	ImageURL      string `json:"image_url"`
+	Type                 string `json:"type"`                  // Hotel | Villa
+	AreaName             string `json:"area_name"`             // Ganti location_area
+	RecommendationReason string `json:"recommendation_reason"` // Ganti location_note
+	Vibe                 string `json:"vibe"`                  // Ganti description
 }
 
 // ==========================================

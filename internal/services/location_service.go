@@ -103,7 +103,7 @@ func (s *LocationService) askAIForMetadata(ctx context.Context, name string) (*d
 		return nil, err
 	}
 
-	log.Printf("🤖 [Enrichment] Sending Request for '%s'...", name)
+	//log.Printf("🤖 [Enrichment] Sending Request for '%s'...", name)
 
 	// 3. Call OpenAI
 	resp, err := s.AIClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
@@ -130,11 +130,11 @@ func (s *LocationService) askAIForMetadata(ctx context.Context, name string) (*d
 	}
 
 	// --- LOGGING POINT 3: RESULT CHECK ---
-	log.Printf("✅ [Enrichment] Parsed Struct: OfficialName='%s', Hub='%s', TagsLen=%d",
-		meta.Name,
-		meta.HubCode,
-		len(meta.Styles),
-	)
+	//log.Printf("✅ [Enrichment] Parsed Struct: OfficialName='%s', Hub='%s', TagsLen=%d",
+	//	meta.Name,
+	//	meta.HubCode,
+	//	len(meta.Styles),
+	//)
 
 	return &meta, nil
 }

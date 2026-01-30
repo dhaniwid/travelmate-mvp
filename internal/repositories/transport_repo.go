@@ -113,21 +113,21 @@ func (r *TransportRepository) SavePrice(ctx context.Context, price domain.RouteP
 }
 
 // UpsertTransportOption menyimpan atau update data transport
-func (r *TransportRepository) UpsertTransportOption(ctx context.Context, opt domain.TransportOption, origin, dest string) error {
-	query := `
-        INSERT INTO transport_seed_options 
-        (origin_city, destination_city, transport_type, provider_name, estimated_price_min, estimated_duration, pros, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-        ON CONFLICT (origin_city, destination_city, provider_name, transport_type) 
-        DO UPDATE SET 
-            estimated_price_min = EXCLUDED.estimated_price_min,
-            estimated_duration = EXCLUDED.estimated_duration,
-            pros = EXCLUDED.pros,
-            created_at = NOW() -- Refresh timestamp agar tau ini data baru
-    `
-	// Convert FlexibleInt64 ke int64 standard atau float untuk DB
-	price := int64(opt.Price)
-
-	_, err := r.DB.ExecContext(ctx, query, origin, dest, opt.Type, opt.Name, price, opt.EstimatedTime, opt.Pros)
-	return err
-}
+//func (r *TransportRepository) UpsertTransportOption(ctx context.Context, opt domain.TransportOption, origin, dest string) error {
+//	query := `
+//        INSERT INTO transport_seed_options
+//        (origin_city, destination_city, transport_type, provider_name, estimated_price_min, estimated_duration, pros, created_at)
+//        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+//        ON CONFLICT (origin_city, destination_city, provider_name, transport_type)
+//        DO UPDATE SET
+//            estimated_price_min = EXCLUDED.estimated_price_min,
+//            estimated_duration = EXCLUDED.estimated_duration,
+//            pros = EXCLUDED.pros,
+//            created_at = NOW() -- Refresh timestamp agar tau ini data baru
+//    `
+//	// Convert FlexibleInt64 ke int64 standard atau float untuk DB
+//	price := int64(opt.Price)
+//
+//	_, err := r.DB.ExecContext(ctx, query, origin, dest, opt.Type, opt.Name, price, opt.EstimatedTime, opt.Pros)
+//	return err
+//}

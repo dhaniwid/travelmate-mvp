@@ -1,0 +1,32 @@
+[
+  {
+    "name": "Bali",
+    "country": "Indonesia",
+    "description": "Pulau Dewata yang terkenal dengan pantai, pura, dan budaya yang kental.",
+    "style_tags": "Nature,Culture,Beach,Relax",
+    "hub_type": "Airport",
+    "hub_code": "DPS",
+    "hub_name": "Ngurah Rai International Airport",
+    "image_url": "https://images.unsplash.com/photo-1537996194471-e657df975ab4"
+  },
+  {
+    "name": "Tokyo",
+    "country": "Japan",
+    "description": "Metropolitan sibuk yang memadukan teknologi futuristik dengan tradisi kuno.",
+    "style_tags": "City,Culture,Shopping,Food",
+    "hub_type": "Airport",
+    "hub_code": "HND",
+    "hub_name": "Haneda Airport",
+    "image_url": "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf"
+  },
+  {
+    "name": "Yogyakarta",
+    "country": "Indonesia",
+    "description": "Pusat seni dan budaya Jawa klasik, rumah bagi Candi Borobudur dan Prambanan.",
+    "style_tags": "Culture,History,Nature,Food",
+    "hub_type": "Airport",
+    "hub_code": "YIA",
+    "hub_name": "Yogyakarta International Airport",
+    "image_url": "https://images.unsplash.com/photo-1584810359583-96fc3448beaa"
+  }
+]

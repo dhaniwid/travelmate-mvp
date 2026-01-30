@@ -73,10 +73,13 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 	var trip domain.Trip
 	var planDataRaw []byte
 
+	var userID sql.NullString
+	var locationID sql.NullString
+
 	err := r.DB.QueryRowContext(ctx, query, id).Scan(
 		&trip.ID,
-		&trip.UserID,
-		&trip.LocationID,
+		&userID,
+		&locationID,
 		&trip.Destination,
 		&trip.Origin,
 		&trip.StartDate,
@@ -94,6 +97,13 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan trip: %w", err)
+	}
+
+	if userID.Valid {
+		trip.UserID = userID.String
+	}
+	if locationID.Valid {
+		trip.LocationID = locationID.String
 	}
 
 	var plan domain.TripPlan
@@ -254,4 +264,105 @@ func (r *TripRepository) Create(ctx context.Context, trip *domain.Trip) error {
 	}
 
 	return nil
+}
+
+func (r *TripRepository) Delete(ctx context.Context, id string, userID string) error {
+	query := `DELETE FROM trips WHERE id = $1 AND user_id = $2`
+
+	result, err := r.DB.ExecContext(ctx, query, id, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete trip: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("trip not found or unauthorized")
+	}
+
+	return nil
+}
+
+// GetByID GetByID: Mengambil metadata trip saja (Ringan, tanpa plan_data)
+func (r *TripRepository) GetByID(ctx context.Context, id string) (*domain.Trip, error) {
+	query := `
+        SELECT 
+            id, user_id, location_id, destination, origin, 
+            start_date, trip_days, style, budget, budget_range, 
+            is_public, created_at
+        FROM trips
+        WHERE id = $1
+    `
+
+	var trip domain.Trip
+	// Perhatikan: Tidak ada scan ke &planDataRaw
+	err := r.DB.QueryRowContext(ctx, query, id).Scan(
+		&trip.ID,
+		&trip.UserID,
+		&trip.LocationID,
+		&trip.Destination,
+		&trip.Origin,
+		&trip.StartDate,
+		&trip.TripDays,
+		&trip.Style,
+		&trip.Budget,
+		&trip.BudgetRange,
+		&trip.IsPublic,
+		&trip.CreatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("trip not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &trip, nil
+}
+
+// ListTripsByUser mengambil semua trip milik user tertentu
+func (r *TripRepository) ListTripsByUser(ctx context.Context, userID string) ([]domain.Trip, error) {
+	// 🔍 FILTER BY USER_ID
+	query := `
+        SELECT 
+            id, user_id, location_id, destination, origin, 
+            start_date, trip_days, style, budget, budget_range, 
+            is_public, created_at 
+        FROM trips
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+    `
+
+	rows, err := r.DB.QueryContext(ctx, query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var trips []domain.Trip
+	for rows.Next() {
+		var t domain.Trip
+		// Helper vars untuk handle nullable jika perlu
+		var locID sql.NullString
+
+		err := rows.Scan(
+			&t.ID, &t.UserID, &locID, &t.Destination, &t.Origin,
+			&t.StartDate, &t.TripDays, &t.Style, &t.Budget, &t.BudgetRange,
+			&t.IsPublic, &t.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if locID.Valid {
+			t.LocationID = locID.String
+		}
+
+		trips = append(trips, t)
+	}
+
+	return trips, nil
 }

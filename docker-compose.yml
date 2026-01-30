@@ -22,6 +22,9 @@ services:
       - ./migrations/008_update_prompts.sql:/docker-entrypoint-initdb.d/008_update_prompts.sql
       - ./migrations/009_create_users_table.sql:/docker-entrypoint-initdb.d/009_create_users_table.sql
       - ./migrations/010_create_transport_seed_options.sql:/docker-entrypoint-initdb.d/010_create_transport_seed_options.sql
+      - ./migrations/011_add_plan_data_to_trips.up.sql:/docker-entrypoint-initdb.d/011_add_plan_data_to_trips.up.sql
+      - ./migrations/012_fix_user_id_type.up.sql:/docker-entrypoint-initdb.d/012_fix_user_id_type.up.sql
+      - ./migrations/013_add_alternatives_prompt.sql:/docker-entrypoint-initdb.d/013_add_alternatives_prompt.sql
 
 volumes:
   db_data:

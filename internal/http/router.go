@@ -15,11 +15,12 @@ func SetupRouter(tripHandler *handlers.TripHandler, fbHandler *handlers.Feedback
 	r.Use(gin.Recovery())
 	r.Use(middleware.JSONLogger())
 
-	// 🛠️ CONFIG CORS OPTIMIZED FOR SSE
+	// 🛠️ CONFIG CORS OPTIMIZED FOR SSE & CLERK
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"}, // Di production, ganti dengan domain frontend
-		AllowMethods:     []string{"GET", "POST", "OPTIONS", "PUT"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
+		AllowOrigins: []string{"*"}, // Di production, ganti dengan domain frontend Anda
+		AllowMethods: []string{"GET", "POST", "OPTIONS", "PUT", "DELETE"},
+		// Tambahkan "Authorization" agar token Clerk bisa lewat
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With", "X-User-ID"},
 		ExposeHeaders:    []string{"Content-Length", "Connection", "Cache-Control", "Transfer-Encoding"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
@@ -30,24 +31,40 @@ func SetupRouter(tripHandler *handlers.TripHandler, fbHandler *handlers.Feedback
 	{
 		v1 := api.Group("/v1")
 		{
-			// TRIP ROUTES
-			// POST /api/v1/trips/stream -> Untuk fitur Parallel Streaming (SSE)
+			// ============================================================
+			// 🌍 PUBLIC ROUTES (Accessible by Guest/Anonymous)
+			// ============================================================
+
+			// Trip Generation (Streaming) - Kita biarkan public agar guest bisa mencoba
+			// User ID akan dikirim opsional di body jika user login
 			v1.POST("/trips/stream", tripHandler.CreateTripStream)
 
-			// POST /api/v1/trips -> Legacy/Non-streaming creation
-			v1.POST("/trips", tripHandler.CreateTrip)
-
-			// Endpoint ini khusus untuk menyimpan hasil trip yang sudah direview user di Frontend
-			v1.POST("/trips/save", tripHandler.SaveTrip)
-
-			// GET /api/v1/trips -> List semua trip
-			v1.GET("/trips", tripHandler.ListTrips)
-
-			// GET /api/v1/trips/:id -> Detail trip tunggal
+			// Get Single Trip (Detail) - Public agar bisa dishare link-nya ke teman
 			v1.GET("/trips/:id", tripHandler.GetTrip)
 
-			// FEEDBACK ROUTES
+			// Utilities
+			v1.POST("/alternatives", tripHandler.GetAlternatives)
 			v1.POST("/trips/:id/feedback", fbHandler.SubmitFeedback)
+
+			// ============================================================
+			// 🔒 PROTECTED ROUTES (Requires Clerk Authentication)
+			// ============================================================
+			protected := v1.Group("/")
+			// Pasang Middleware Auth di group ini
+			protected.Use(middleware.AuthMiddleware())
+			{
+				// 1. History (List Trips)
+				// Wajib login karena memfilter berdasarkan user_id dari token
+				protected.GET("/trips", tripHandler.ListTrips)
+
+				// 2. Save/Confirm Trip
+				// Wajib login karena user anonim tidak bisa menyimpan ke history permanen
+				protected.POST("/trips/save", tripHandler.SaveTrip)
+
+				// 3. Delete Trip
+				// Wajib login untuk keamanan
+				protected.DELETE("/trips/:id", tripHandler.DeleteTrip)
+			}
 		}
 	}
 
