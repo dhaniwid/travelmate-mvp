@@ -34,290 +34,141 @@ func NewAIPlanner(apiKey string, promptSvc *PromptService) *AIPlanner {
 // PUBLIC METHODS (Business Logic Entry Points)
 // ============================================================================
 
-// GeneratePlan: Membuat Full Plan (Itinerary + Logistics + Budget)
-// Jika gagal, akan fallback ke Mock Plan.
-func (p *AIPlanner) GeneratePlan(ctx context.Context, trip domain.Trip, tickets []domain.TransportOption) (domain.TripPlan, error) {
-	var aiResp domain.AIPlannerResponse
-
-	err := p.requestOpenAIWithRoleUser(ctx, "planner_system", trip, &aiResp)
-	if err != nil {
-		log.Printf("❌ Full Plan Error: %v. Switching to Mock.", err)
-		return p.generateMockPlan(trip, tickets), nil
+// GetDiscoveryInfo Fitur "Dream/Inspiration"
+func (p *AIPlanner) GetDiscoveryInfo(ctx context.Context, city string) (*domain.DiscoveryResponse, error) {
+	// 1. Siapkan Data untuk Template ({{.Destination}})
+	inputData := map[string]string{
+		"Destination": city,
 	}
 
-	return domain.TripPlan{
-		TripID:               trip.ID,
-		Itinerary:            aiResp.Itinerary,
-		BudgetBreakdown:      aiResp.BudgetBreakdown,
-		TransportOptions:     aiResp.TransportOptions,
-		AccommodationOptions: aiResp.AccommodationOptions,
-		DecisionNotes:        aiResp.DecisionNotes,
-	}, nil
+	// 2. Variable penampung Raw JSON
+	var rawResponse json.RawMessage
+
+	// 3. Panggil AI dengan fungsi generic
+	if err := p.requestAI(ctx, "discovery_agent", inputData, &rawResponse); err != nil {
+		return nil, fmt.Errorf("discovery AI failed: %w", err)
+	}
+
+	// 4. Cleaning & Parsing (Hybrid: Object/Array safe)
+	// Karena prompt discovery_agent outputnya Object, kita langsung unmarshal
+	cleanData := cleanJSON(rawResponse)
+
+	var resp domain.DiscoveryResponse
+	if err := json.Unmarshal(cleanData, &resp); err != nil {
+		fmt.Printf("❌ Failed JSON Discovery: %s\n", string(cleanData))
+		return nil, fmt.Errorf("parse error: %w", err)
+	}
+
+	return &resp, nil
 }
 
-// GenerateOnlyItinerary: Hanya membuat jadwal harian (Optimized for Parallel Stream)
+// GenerateOnlyItinerary Fitur "Plan Itinerary"
 func (p *AIPlanner) GenerateOnlyItinerary(ctx context.Context, trip domain.Trip) ([]domain.ItineraryDay, error) {
-	// 1. Ambil Raw Response sebagai string/bytes dulu
-	var raw json.RawMessage
+	var rawResponse json.RawMessage
 
-	// Pastikan requestOpenAI mendukung pointer ke json.RawMessage
-	if err := p.requestOpenAIWithRoleUser(ctx, "planner_itinerary_system", trip, &raw); err != nil {
+	// 1. Log Start Request
+	//fmt.Printf("🔍 [AI DEBUG] Requesting Itinerary for Trip ID: %s, Destination: %s\n", trip.ID, trip.Destination)
+
+	if err := p.requestAI(ctx, "planner_itinerary_system", trip, &rawResponse); err != nil {
+		fmt.Printf("❌ [AI DEBUG] Request AI Failed: %v\n", err)
 		return nil, err
 	}
 
-	// 2. Bersihkan Markdown (```json ... ```) jika ada
-	cleanData := cleanJSON(raw)
+	cleanData := cleanJSON(rawResponse)
 
-	// 🔍 DEBUG: Lihat apa yang sebenarnya mau di-parse
-	// fmt.Printf("🧹 Clean JSON for Itinerary: %s\n", string(cleanData))
-
-	// 3. STRATEGI A: Coba Parse sebagai Object Wrapper { "itinerary": [...] }
+	// --- Percobaan Parsing 1: Wrapper Object ---
 	var wrapper struct {
 		Itinerary []domain.ItineraryDay `json:"itinerary"`
 	}
-	if err := json.Unmarshal(cleanData, &wrapper); err == nil {
-		if len(wrapper.Itinerary) > 0 {
-			return wrapper.Itinerary, nil
-		}
+	if err := json.Unmarshal(cleanData, &wrapper); err == nil && len(wrapper.Itinerary) > 0 {
+		return wrapper.Itinerary, nil
+	} else if err != nil {
+		fmt.Printf("⚠️ [AI DEBUG] Wrapper Unmarshal failed: %v\n", err)
 	}
 
-	// 4. STRATEGI B: Coba Parse sebagai Array Langsung [...]
+	// --- Percobaan Parsing 2: Direct Array ---
 	var directArray []domain.ItineraryDay
-	if err := json.Unmarshal(cleanData, &directArray); err == nil {
-		if len(directArray) > 0 {
-			return directArray, nil
-		}
+	if err := json.Unmarshal(cleanData, &directArray); err == nil && len(directArray) > 0 {
+		return directArray, nil
+	} else if err != nil {
+		fmt.Printf("⚠️ [AI DEBUG] Direct Array Unmarshal failed: %v\n", err)
 	}
 
-	// Jika sampai sini, berarti gagal parse atau datanya kosong
-	fmt.Println("❌ Failed to parse Itinerary (Zero length or Invalid JSON structure)")
-	return nil, fmt.Errorf("failed to parse itinerary")
+	fmt.Println("❌ [AI DEBUG] Failed to parse itinerary JSON in both formats")
+	return nil, fmt.Errorf("failed to parse itinerary JSON")
 }
 
-// GenerateTransportAndStay: Hanya membuat Logistik (Transport & Hotel)
+// GenerateTransportAndStay Fitur "Expert Logistics"
 func (p *AIPlanner) GenerateTransportAndStay(ctx context.Context, trip domain.Trip) (domain.TripPlan, error) {
-	var aiResp domain.AIPlannerResponse
+	var logisticsResp struct {
+		LogisticsContext       domain.LogisticsContext      `json:"logistics_context"`
+		TransportOptions       []domain.TransportOption     `json:"transport_options"`
+		StrategicAccommodation []domain.AccommodationOption `json:"strategic_accommodation"`
+	}
 
 	// 1. Request ke AI
-	err := p.requestOpenAIRoleSystem(ctx, "planner_logistics_system", trip, &aiResp)
-	if err != nil {
+	if err := p.requestAI(ctx, "planner_logistics_system", trip, &logisticsResp); err != nil {
+		fmt.Printf("❌ Logistics AI Error: %v\n", err)
 		return domain.TripPlan{}, err
 	}
 
-	fmt.Printf("🛎️ AI Logistics Response: %+v\n", aiResp)
+	//fmt.Printf("🛎️ AI Logistics Response: %+v\n", logisticsResp)
 
-	// 2. Sanity Check & Auto-Correct Currency
-	//p.sanitizeLogisticsPrices(&aiResp, trip.TripDays)
-
+	// 2. Return TripPlan (Map dari temporary struct ke domain)
 	return domain.TripPlan{
-		TransportOptions:     aiResp.TransportOptions,
-		AccommodationOptions: aiResp.AccommodationOptions,
+		TripID:               trip.ID,
+		LogisticsContext:     logisticsResp.LogisticsContext,
+		TransportOptions:     logisticsResp.TransportOptions,
+		AccommodationOptions: logisticsResp.StrategicAccommodation,
 	}, nil
 }
 
-// ----------------------------------------------------------------------------
-// NEW FEATURE: Generate Alternatives (Premium)
-// ----------------------------------------------------------------------------
-
-// GenerateAlternatives meminta AI untuk memberikan opsi aktivitas lain berdasarkan preference tags
+// GenerateAlternatives Fitur "Activity Alternatives"
 func (p *AIPlanner) GenerateAlternatives(ctx context.Context, dest, activity, location string, tags []string) ([]domain.ActivityAlternative, error) {
-
-	// 1. Ambil Prompt dari Database via PromptService
-	// (Pastikan method GetAlternativesPrompt sudah ada di PromptService sesuai diskusi sebelumnya)
-	promptText, err := p.promptSvc.GetAlternativesPrompt(ctx, dest, activity, location, tags)
-	if err != nil {
-		return nil, fmt.Errorf("failed to render alternative prompt: %w", err)
+	// 1. Siapkan Data untuk Template Prompt
+	inputData := map[string]interface{}{
+		"Destination": dest,
+		"Activity":    activity,
+		"Location":    location,
+		"Tags":        tags,
 	}
 
-	// 2. Request ke OpenAI (Non-Streaming karena butuh JSON utuh)
-	resp, err := p.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: ModelFast, // Gunakan model hemat
-		Messages: []openai.ChatCompletionMessage{
-			{
-				Role:    openai.ChatMessageRoleSystem,
-				Content: "You are a helpful travel assistant that outputs strict JSON arrays only.",
-			},
-			{
-				Role:    openai.ChatMessageRoleUser,
-				Content: promptText,
-			},
-		},
-		Temperature: 0.7, // Sedikit kreatif untuk variasi
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("openai alternatives error: %w", err)
-	}
-
-	if len(resp.Choices) == 0 {
-		return nil, fmt.Errorf("openai returned no choices")
-	}
-
-	// 3. Parse Response menggunakan helper yang sudah ada
-	// Kita reuse p.parseJSON yang sudah menghandle pembersihan markdown
+	// 2. Request AI
 	var alternatives []domain.ActivityAlternative
-	if err := p.parseJSON(resp.Choices[0].Message.Content, &alternatives); err != nil {
-		return nil, fmt.Errorf("failed to parse alternatives json: %w", err)
+
+	if err := p.requestAI(ctx, "planner_alternatives_system", inputData, &alternatives); err != nil {
+		return nil, fmt.Errorf("failed to generate alternatives: %w", err)
 	}
 
 	return alternatives, nil
 }
 
-// ============================================================================
-// PRIVATE HELPER METHODS (Logic Internals)
-// ============================================================================
-
-// requestOpenAI: Centralized logic untuk memanggil OpenAI API
-// Helper untuk membersihkan markdown code block (```json ... ```)
-func cleanJSON(raw []byte) []byte {
-	s := string(raw)
-	s = strings.TrimSpace(s)
-
-	// Hapus ```json di awal
-	if strings.HasPrefix(s, "```json") {
-		s = strings.TrimPrefix(s, "```json")
-	} else if strings.HasPrefix(s, "```") {
-		s = strings.TrimPrefix(s, "```")
+// GeneratePackingList Membuat daftar bawaan cerdas berdasarkan destinasi, durasi, dan style trip
+func (p *AIPlanner) GeneratePackingList(ctx context.Context, trip domain.Trip) ([]domain.PackingItem, error) {
+	// 1. Siapkan struct wrapper untuk menangkap JSON output
+	var result struct {
+		PackingList []domain.PackingItem `json:"packing_list"`
 	}
 
-	// Hapus ``` di akhir
-	if strings.HasSuffix(s, "```") {
-		s = strings.TrimSuffix(s, "```")
-	}
-
-	return []byte(strings.TrimSpace(s))
-}
-
-func (p *AIPlanner) requestOpenAIRoleSystem(ctx context.Context, sysKey string, trip domain.Trip, target interface{}) error {
-	// 1. Prepare Prompts
-	sysPrompt, err := p.promptSvc.GetRenderedPrompt(ctx, sysKey, nil)
+	// 2. Request ke OpenAI
+	err := p.requestAI(ctx, "planner_packing_system", trip, &result)
 	if err != nil {
-		return fmt.Errorf("system prompt error: %w", err)
+		log.Printf("❌ Packing List Generation Error: %v", err)
+		return nil, err
 	}
 
-	fmt.Printf("🤖 Asking OpenAI Role System Only [%s]...\n", sysKey)
-
-	// 2. Call OpenAI
-	resp, err := p.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: ModelFast,
-		Messages: []openai.ChatCompletionMessage{
-			{Role: openai.ChatMessageRoleSystem, Content: sysPrompt},
-		},
-		Temperature: 0.7,
-	})
-
-	if err != nil {
-		return fmt.Errorf("openai api error: %w", err)
-	}
-
-	rawContent := resp.Choices[0].Message.Content
-
-	// 3. CLEAN & PARSE
-	cleanContent := cleanJSON([]byte(rawContent))
-
-	fmt.Printf("🤖 Raw Content for [%s]: %s\n", sysKey, rawContent)
-
-	if err := json.Unmarshal([]byte(cleanContent), target); err != nil {
-		// Log raw content jika error, agar mudah debug
-		fmt.Printf("❌ JSON Parse Error for [%s]. Content: %s\n", sysKey, cleanContent)
-		return fmt.Errorf("json parse error: %w", err)
-	}
-
-	return nil
-}
-
-func (p *AIPlanner) requestOpenAIWithRoleUser(ctx context.Context, sysKey string, trip domain.Trip, target interface{}) error {
-	// 1. Prepare Prompts
-	sysPrompt, err := p.promptSvc.GetRenderedPrompt(ctx, sysKey, nil)
-	if err != nil {
-		return fmt.Errorf("system prompt error: %w", err)
-	}
-
-	userPrompt, err := p.promptSvc.GetRenderedPrompt(ctx, "planner_user", trip)
-	if err != nil {
-		return fmt.Errorf("user prompt error: %w", err)
-	}
-
-	fmt.Printf("🤖 Asking OpenAI Role System & User [%s]...\n", sysKey)
-
-	// 2. Call OpenAI
-	resp, err := p.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: ModelFast,
-		Messages: []openai.ChatCompletionMessage{
-			{Role: openai.ChatMessageRoleSystem, Content: sysPrompt},
-			{Role: openai.ChatMessageRoleUser, Content: userPrompt},
-		},
-		Temperature: 0.7,
-	})
-
-	if err != nil {
-		return fmt.Errorf("openai api error: %w", err)
-	}
-
-	rawContent := resp.Choices[0].Message.Content
-
-	// 3. CLEAN & PARSE
-	cleanContent := cleanJSON([]byte(rawContent))
-
-	fmt.Printf("🤖 Raw Content for [%s]: %s\n", sysKey, rawContent)
-
-	if err := json.Unmarshal([]byte(cleanContent), target); err != nil {
-		// Log raw content jika error, agar mudah debug
-		fmt.Printf("❌ JSON Parse Error for [%s]. Content: %s\n", sysKey, cleanContent)
-		return fmt.Errorf("json parse error: %w", err)
-	}
-
-	return nil
-}
-
-// sanitizeLogisticsPrices: Memperbaiki harga hotel yang tidak masuk akal
-//func (p *AIPlanner) sanitizeLogisticsPrices(aiResp *domain.AIPlannerResponse, tripDays int) {
-//	const ThresholdIDR = 100000
-//	const YenToIDR = 105
-//
-//	for i, acc := range aiResp.AccommodationOptions {
-//		price := int64(acc.PricePerNight)
-//
-//		if price > 0 && price < ThresholdIDR {
-//			if price >= 1000 && price <= 50000 {
-//				newPrice := price * YenToIDR
-//				log.Printf("⚠️ Detected suspicious hotel price (%d). Auto-correcting JPY to IDR: %d", price, newPrice)
-//
-//				aiResp.AccommodationOptions[i].PricePerNight = int64(domain.FlexibleInt64(newPrice))
-//
-//				currentAccomBudget := int64(aiResp.BudgetBreakdown.Accommodation)
-//				diff := (newPrice * int64(tripDays)) - (price * int64(tripDays))
-//				aiResp.BudgetBreakdown.Accommodation = domain.FlexibleInt64(currentAccomBudget + diff)
-//			}
-//		}
-//	}
-//}
-
-// parseJSON: Membersihkan Markdown code block sebelum unmarshal
-func (p *AIPlanner) parseJSON(content string, target interface{}) error {
-	content = strings.TrimSpace(content)
-	// Membersihkan ```json dan ```
-	if strings.HasPrefix(content, "```json") {
-		content = strings.TrimPrefix(content, "```json")
-	} else if strings.HasPrefix(content, "```") {
-		content = strings.TrimPrefix(content, "```")
-	}
-	if strings.HasSuffix(content, "```") {
-		content = strings.TrimSuffix(content, "```")
-	}
-	content = strings.TrimSpace(content)
-
-	return json.Unmarshal([]byte(content), target)
+	return result.PackingList, nil
 }
 
 // ============================================================================
 // MOCK / FALLBACK LOGIC
 // ============================================================================
 
+// generateMockPlan adalah fungsi fallback untuk membuat rencana perjalanan mock jika AI gagal
 func (s *AIPlanner) generateMockPlan(req domain.Trip, realTickets []domain.TransportOption) domain.TripPlan {
 	log.Println("⚠️ OpenAI Error or JSON Invalid. Switching to Mock Plan.")
 
-	// 1. Dummy Itinerary (Tetap sama, logic sederhana)
+	// 1. Dummy Itinerary (Logic sederhana tetap sama)
 	itinerary := []domain.ItineraryDay{}
 	for i := 1; i <= req.TripDays; i++ {
 		day := domain.ItineraryDay{Day: i}
@@ -337,19 +188,16 @@ func (s *AIPlanner) generateMockPlan(req domain.Trip, realTickets []domain.Trans
 		itinerary = append(itinerary, day)
 	}
 
-	// 2. Dummy Transport (SESUAIKAN DENGAN STRUCT BARU)
-	// Kita buat 2 opsi: Cepat & Hemat
+	// 2. Dummy Transport (SESUAIKAN DENGAN STRUCT BARU "Expert Logistics")
 	transportOpts := []domain.TransportOption{
 		{
-			StrategyTag:   "CEPAT",
-			Name:          "Direct Flight (Mock)",
-			PriceTier:     "HIGH",
-			EstimatedTime: "1h 30m",
-			Pros:          "Fastest way to reach destination (Mock Data).",
-			HubDetails: domain.HubDetails{
-				DepartureNode: "Origin Airport (CGK)",
-				ArrivalNode:   "Destination Airport",
-			},
+			StrategyTag:          "CEPAT",
+			Name:                 "Direct Flight (Mock)",
+			PriceTier:            "HIGH",
+			TotalDurationDisplay: "3h 30m", // Field Baru
+			Pros:                 "Fastest way to reach destination (Mock Data).",
+			OperatorsHint:        "Garuda Indonesia, Citilink",    // Field Baru
+			BookingQuery:         "flight jakarta to destination", // Field Baru
 			Breakdown: domain.TransportBreakdown{
 				FirstMile: "Taxi to Airport (45m)",
 				MainLeg:   "Direct Flight (1h)",
@@ -357,43 +205,42 @@ func (s *AIPlanner) generateMockPlan(req domain.Trip, realTickets []domain.Trans
 			},
 		},
 		{
-			StrategyTag:   "HEMAT",
-			Name:          "Intercity Train/Bus (Mock)",
-			PriceTier:     "LOW",
-			EstimatedTime: "4h 00m",
-			Pros:          "Budget friendly option.",
-			HubDetails: domain.HubDetails{
-				DepartureNode: "Central Station",
-				ArrivalNode:   "City Terminal",
-			},
+			StrategyTag:          "HEMAT",
+			Name:                 "Intercity Train (Mock)",
+			PriceTier:            "LOW",
+			TotalDurationDisplay: "9h 00m", // Field Baru
+			Pros:                 "Budget friendly option.",
+			OperatorsHint:        "KAI (Kereta Api Indonesia)",  // Field Baru
+			BookingQuery:         "tiket kereta ke destination", // Field Baru
 			Breakdown: domain.TransportBreakdown{
 				FirstMile: "Ojek to Station (30m)",
-				MainLeg:   "Economy Train (3h)",
+				MainLeg:   "Economy Train (8h)",
 				LastMile:  "Angkot to Area (30m)",
 			},
 		},
 	}
 
-	// 3. Dummy Accommodation (FOKUS AREA & NOTE)
+	// 3. Dummy Accommodation (SESUAIKAN DENGAN STRUCT BARU)
 	accomOpts := []domain.AccommodationOption{
 		{
-			Type:         "Hotel",
-			LocationArea: "City Center Zone",
-			LocationNote: "Strategic access to all landmarks.",
-			Description:  "Mock description: A vibrant area perfect for tourists.",
+			Type:                 "Hotel",
+			AreaName:             "City Center Zone",                   // Ganti LocationArea
+			RecommendationReason: "Strategic access to all landmarks.", // Ganti LocationNote
+			Vibe:                 "Vibrant area perfect for tourists.", // Ganti Description
 		},
 		{
-			Type:         "Villa",
-			LocationArea: "Quiet Highlands",
-			LocationNote: "Best for relaxation.",
-			Description:  "Mock description: Peaceful area away from traffic.",
+			Type:                 "Villa",
+			AreaName:             "Quiet Highlands",
+			RecommendationReason: "Best for relaxation.",
+			Vibe:                 "Peaceful area away from traffic.",
 		},
 	}
 
 	// 4. Dummy Context
 	logContext := domain.LogisticsContext{
 		DistanceKM:   123,
-		WarningAlert: "This is a generated MOCK PLAN because the AI service is currently unavailable.",
+		RouteType:    "Inter-City",
+		WarningAlert: "⚠️ MOCK PLAN: AI Service Unavailable.",
 	}
 
 	// 5. Dummy Budget
@@ -411,24 +258,85 @@ func (s *AIPlanner) generateMockPlan(req domain.Trip, realTickets []domain.Trans
 		BudgetBreakdown:      budget,
 		TransportOptions:     transportOpts,
 		AccommodationOptions: accomOpts,
-		LogisticsContext:     logContext, // Jangan lupa ini
+		LogisticsContext:     logContext,
 		DecisionNotes:        []string{"⚠️ This is a generated mock plan because AI service is unavailable."},
 	}
 }
 
-// GeneratePackingList GeneratePackingList: Membuat daftar bawaan cerdas berdasarkan destinasi, durasi, dan style trip
-func (p *AIPlanner) GeneratePackingList(ctx context.Context, trip domain.Trip) ([]domain.PackingItem, error) {
-	// 1. Siapkan struct wrapper untuk menangkap JSON output
-	var result struct {
-		PackingList []domain.PackingItem `json:"packing_list"`
-	}
+// ---------------------------------------------------------
+// PRIVATE HELPER
+// ---------------------------------------------------------
 
-	// 2. Request ke OpenAI
-	err := p.requestOpenAIRoleSystem(ctx, "planner_packing_system", trip, &result)
+// requestAI adalah fungsi TUNGGAL untuk menangani komunikasi ke OpenAI.
+func (p *AIPlanner) requestAI(ctx context.Context, sysKey string, data interface{}, target interface{}) error {
+	// 1. Render System Prompt (Rules & Schema)
+	sysPrompt, err := p.promptSvc.GetRenderedPrompt(ctx, sysKey, data)
 	if err != nil {
-		log.Printf("❌ Packing List Generation Error: %v", err)
-		return nil, err
+		return fmt.Errorf("render prompt error [%s]: %w", sysKey, err)
 	}
 
-	return result.PackingList, nil
+	// 2. Prepare User Content (Data Trip Explicit)
+	userDataBytes, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal user data: %w", err)
+	}
+	userContent := fmt.Sprintf("Here is the trip context data:\n%s", string(userDataBytes))
+
+	// 🔍 DEBUG LOG (Optional)
+	fmt.Printf("🤖 [System]: %s\n", sysKey)
+	fmt.Printf("👤 [User Context]: %s\n", userContent)
+
+	// 3. Call OpenAI (Multi-role Messages)
+	resp, err := p.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model: "gpt-4o-mini",
+		Messages: []openai.ChatCompletionMessage{
+			// Role System: Menjelaskan SIAPA dia dan FORMAT apa yang diminta
+			{Role: openai.ChatMessageRoleSystem, Content: sysPrompt},
+
+			// Role User: Memberikan DATA KONTEKS spesifik
+			{Role: openai.ChatMessageRoleUser, Content: userContent},
+		},
+		Temperature:    0.7,
+		ResponseFormat: &openai.ChatCompletionResponseFormat{Type: openai.ChatCompletionResponseFormatTypeJSONObject},
+	})
+
+	if err != nil {
+		return fmt.Errorf("openai api error: %w", err)
+	}
+
+	if len(resp.Choices) == 0 {
+		return fmt.Errorf("openai returned empty choices")
+	}
+
+	// 4. Processing Response
+	rawContent := resp.Choices[0].Message.Content
+	cleanContent := cleanJSON([]byte(rawContent))
+
+	if err := json.Unmarshal(cleanContent, target); err != nil {
+		// Log content jika error syntax, biar mudah debug
+		fmt.Printf("❌ JSON Syntax Error for [%s]. \nContent: %s\n", sysKey, cleanContent)
+		return fmt.Errorf("json syntax error: %w", err)
+	}
+
+	return nil
+}
+
+// Helper untuk membersihkan markdown code block (```json ... ```)
+func cleanJSON(raw []byte) []byte {
+	s := string(raw)
+	s = strings.TrimSpace(s)
+
+	// Hapus ```json di awal
+	if strings.HasPrefix(s, "```json") {
+		s = strings.TrimPrefix(s, "```json")
+	} else if strings.HasPrefix(s, "```") {
+		s = strings.TrimPrefix(s, "```")
+	}
+
+	// Hapus ``` di akhir
+	if strings.HasSuffix(s, "```") {
+		s = strings.TrimSuffix(s, "```")
+	}
+
+	return []byte(strings.TrimSpace(s))
 }

@@ -124,41 +124,44 @@ func (h *TripHandler) ListTrips(c *gin.Context) {
 
 // SaveTrip menangani POST /api/trips
 func (h *TripHandler) SaveTrip(c *gin.Context) {
-	var req domain.Trip
+	// Kita bisa buat struct request kecil agar tidak perlu bind seluruh object Trip yang besar
+	// karena kita hanya butuh ID dan UserID.
+	var req struct {
+		ID     string `json:"id"`
+		UserID string `json:"user_id"` // Biasanya ini otomatis dari Middleware Auth, tapi kita ikuti flow kamu
+	}
 
-	// 1. Bind JSON
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, domain.APIError{
 			Code:    "validation_error",
-			Message: "Invalid request body: " + err.Error(),
+			Message: "Invalid request: " + err.Error(),
 		})
 		return
 	}
 
-	// 2. Validasi ID User (Wajib ada dari Clerk)
+	// Validasi User ID
 	if req.UserID == "" {
-		c.JSON(http.StatusUnauthorized, domain.APIError{
-			Code:    "unauthorized",
-			Message: "User ID is missing",
-		})
+		c.JSON(http.StatusUnauthorized, domain.APIError{Code: "unauthorized", Message: "User ID missing"})
 		return
 	}
 
-	// FORCE the status to UPCOMING when the user explicitly saves it
-	req.Status = "UPCOMING"
+	// Buat object domain trip dummy hanya untuk passing data ke service
+	trip := &domain.Trip{
+		ID:     req.ID,
+		UserID: req.UserID,
+	}
 
-	// 3. Panggil Service
-	if err := h.Service.SaveUserTrip(c.Request.Context(), &req); err != nil {
+	// Panggil Service
+	if err := h.Service.SaveUserTrip(c.Request.Context(), trip); err != nil {
 		c.JSON(http.StatusInternalServerError, domain.APIError{
 			Code:    "internal_error",
-			Message: "Failed to save trip: " + err.Error(),
+			Message: "Failed to claim trip: " + err.Error(),
 		})
 		return
 	}
 
-	// 4. Response Sukses
-	c.JSON(http.StatusCreated, gin.H{
-		"message": "Trip confirmed! Countdown started. ⏳",
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Trip successfully saved to your history! 🚀",
 		"trip_id": req.ID,
 		"status":  "UPCOMING",
 	})
@@ -221,4 +224,38 @@ func (h *TripHandler) GetPackingList(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": list})
+}
+
+// Endpoint: GET /api/v1/discovery?city=Surabaya
+func (h *TripHandler) GetDiscovery(c *gin.Context) {
+	// 1. Ambil Query Param
+	city := c.Query("city")
+
+	// 2. Validasi Input
+	if city == "" {
+		c.JSON(http.StatusBadRequest, domain.APIError{
+			Code:    "bad_request",
+			Message: "City parameter is required",
+		})
+		return
+	}
+
+	// 3. Panggil Service
+	data, err := h.Service.GetDestinationDiscovery(c.Request.Context(), city)
+	if err != nil {
+		// Log error jika perlu
+		// log.Printf("Discovery Error: %v", err)
+
+		c.JSON(http.StatusInternalServerError, domain.APIError{
+			Code:    "internal_error",
+			Message: "Failed to get discovery info: " + err.Error(),
+		})
+		return
+	}
+
+	// 4. Return Success JSON
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    data,
+	})
 }

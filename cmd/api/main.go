@@ -29,6 +29,7 @@ func main() {
 	attractionRepo := repositories.NewAttractionRepository(database)
 	perfRepo := repositories.NewPerformanceRepository(database)
 	perfRepo.PrintStartupDashboard()
+	discoveryRepo := repositories.NewDiscoveryRepo(database)
 
 	// 4. Services (Dependency Injection)
 	promptService := services.NewPromptService(database)
@@ -47,7 +48,7 @@ func main() {
 	transportService := services.NewTransportService(transportRepo)
 
 	tripService := services.NewTripService(tripRepo, fbRepo, accommodationRepo, attractionRepo, transportRepo,
-		perfRepo, plannerEngine, locationService, transportService, imageSvc)
+		perfRepo, discoveryRepo, plannerEngine, locationService, transportService, imageSvc)
 
 	// 5. Handlers
 	tripHandler := handlers.NewTripHandler(tripService)

@@ -65,7 +65,7 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
         SELECT 
             id, user_id, location_id, destination, origin, 
             start_date, trip_days, style, budget, budget_range, 
-            is_public, created_at, plan_data 
+            is_public, created_at, plan_data, status
         FROM trips
         WHERE id = $1
     `
@@ -75,6 +75,7 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 
 	var userID sql.NullString
 	var locationID sql.NullString
+	var budgetRange sql.NullString
 
 	err := r.DB.QueryRowContext(ctx, query, id).Scan(
 		&trip.ID,
@@ -86,10 +87,11 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 		&trip.TripDays,
 		&trip.Style,
 		&trip.Budget,
-		&trip.BudgetRange,
+		&budgetRange,
 		&trip.IsPublic,
 		&trip.CreatedAt,
 		&planDataRaw,
+		&trip.Status,
 	)
 
 	if err == sql.ErrNoRows {
@@ -99,11 +101,16 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 		return nil, fmt.Errorf("failed to scan trip: %w", err)
 	}
 
+	// Mapping NullString ke Struct
 	if userID.Valid {
 		trip.UserID = userID.String
 	}
 	if locationID.Valid {
 		trip.LocationID = locationID.String
+	}
+
+	if budgetRange.Valid {
+		trip.BudgetRange = budgetRange.String
 	}
 
 	var plan domain.TripPlan
@@ -120,7 +127,7 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 }
 
 func (r *TripRepository) GetAllTrips(ctx context.Context) ([]domain.Trip, error) {
-	query := `SELECT id, destination, start_date, trip_days, style FROM trips ORDER BY created_at DESC`
+	query := `SELECT id, destination, start_date, trip_days, style, status FROM trips ORDER BY created_at DESC`
 	rows, err := r.DB.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
@@ -130,7 +137,7 @@ func (r *TripRepository) GetAllTrips(ctx context.Context) ([]domain.Trip, error)
 	var trips []domain.Trip
 	for rows.Next() {
 		var t domain.Trip
-		if err := rows.Scan(&t.ID, &t.Destination, &t.StartDate, &t.TripDays, &t.Style); err != nil {
+		if err := rows.Scan(&t.ID, &t.Destination, &t.StartDate, &t.TripDays, &t.Style, &t.Status); err != nil {
 			continue
 		}
 		trips = append(trips, t)
@@ -291,7 +298,7 @@ func (r *TripRepository) GetByID(ctx context.Context, id string) (*domain.Trip, 
         SELECT 
             id, user_id, location_id, destination, origin, 
             start_date, trip_days, style, budget, budget_range, 
-            is_public, created_at
+            is_public, created_at, status
         FROM trips
         WHERE id = $1
     `
@@ -311,6 +318,7 @@ func (r *TripRepository) GetByID(ctx context.Context, id string) (*domain.Trip, 
 		&trip.BudgetRange,
 		&trip.IsPublic,
 		&trip.CreatedAt,
+		&trip.Status,
 	)
 
 	if err == sql.ErrNoRows {
@@ -329,8 +337,8 @@ func (r *TripRepository) ListTripsByUser(ctx context.Context, userID string) ([]
 	query := `
         SELECT 
             id, user_id, location_id, destination, origin, 
-            start_date, trip_days, style, budget, budget_range, 
-            is_public, created_at 
+            start_date, trip_days, style,  
+            is_public, created_at, status
         FROM trips
         WHERE user_id = $1
         ORDER BY created_at DESC
@@ -350,8 +358,8 @@ func (r *TripRepository) ListTripsByUser(ctx context.Context, userID string) ([]
 
 		err := rows.Scan(
 			&t.ID, &t.UserID, &locID, &t.Destination, &t.Origin,
-			&t.StartDate, &t.TripDays, &t.Style, &t.Budget, &t.BudgetRange,
-			&t.IsPublic, &t.CreatedAt,
+			&t.StartDate, &t.TripDays, &t.Style,
+			&t.IsPublic, &t.CreatedAt, &t.Status,
 		)
 		if err != nil {
 			return nil, err
@@ -365,4 +373,31 @@ func (r *TripRepository) ListTripsByUser(ctx context.Context, userID string) ([]
 	}
 
 	return trips, nil
+}
+
+// [NEW] Fungsi untuk meng-klaim trip yang statusnya masih DRAFT/Generated
+func (r *TripRepository) ClaimTrip(ctx context.Context, tripID string, userID string) error {
+	query := `
+        UPDATE trips 
+        SET 
+            user_id = $1, 
+            status = 'UPCOMING',
+            updated_at = NOW()
+        WHERE id = $2
+    `
+
+	result, err := r.DB.ExecContext(ctx, query, userID, tripID)
+	if err != nil {
+		return fmt.Errorf("failed to claim trip: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("trip not found with id: %s", tripID)
+	}
+
+	return nil
 }

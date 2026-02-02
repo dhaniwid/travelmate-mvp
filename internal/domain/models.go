@@ -134,6 +134,7 @@ type TransportOption struct {
 	Name                 string             `json:"name"`
 	PriceTier            string             `json:"price_tier"`             // LOW | MED | HIGH
 	TotalDurationDisplay string             `json:"total_duration_display"` // Ganti estimated_time
+	HubDetails           HubDetails         `json:"hub_details"`
 	Breakdown            TransportBreakdown `json:"breakdown"`
 	OperatorsHint        string             `json:"operators_hint"` // NEW: "Garuda, Citilink"
 	BookingQuery         string             `json:"booking_query"`  // NEW: "flight jakarta to bali"
