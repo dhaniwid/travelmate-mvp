@@ -69,7 +69,7 @@ func TestTemplatePlanner_GeneratePlan(t *testing.T) {
 			}
 
 			// Cek apakah budget breakdown terisi
-			if len(plan.BudgetBreakdown) == 0 {
+			if plan.BudgetBreakdown.Transport == 0 {
 				t.Error("Expected budget breakdown to be populated")
 			}
 		})

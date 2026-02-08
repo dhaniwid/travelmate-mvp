@@ -160,12 +160,39 @@ func (p *AIPlanner) GeneratePackingList(ctx context.Context, trip domain.Trip) (
 	return result.PackingList, nil
 }
 
+// GeneratePlan Menggabungkan Itinerary dan Logistik ke dalam satu rencana perjalanan penuh
+func (p *AIPlanner) GeneratePlan(ctx context.Context, trip domain.Trip) (domain.TripPlan, error) {
+	// 1. Generate Itinerary
+	itinerary, err := p.GenerateOnlyItinerary(ctx, trip)
+	if err != nil {
+		// Jika gagal AI, fallback ke Mock Plan menyeluruh
+		return p.generateMockPlan(trip, nil), nil
+	}
+
+	// 2. Generate Logistics
+	plan, err := p.GenerateTransportAndStay(ctx, trip)
+	if err != nil {
+		// Jika logistik gagal, kita masih bisa return itinerary dengan dummy logistics
+		mockPlan := p.generateMockPlan(trip, nil)
+		mockPlan.Itinerary = itinerary
+		return mockPlan, nil
+	}
+
+	plan.Itinerary = itinerary
+
+	// 3. Generate Packing List (Opsional, tidak menghentikan flow jika gagal)
+	packing, _ := p.GeneratePackingList(ctx, trip)
+	plan.PackingList = packing
+
+	return plan, nil
+}
+
 // ============================================================================
 // MOCK / FALLBACK LOGIC
 // ============================================================================
 
 // generateMockPlan adalah fungsi fallback untuk membuat rencana perjalanan mock jika AI gagal
-func (s *AIPlanner) generateMockPlan(req domain.Trip, realTickets []domain.TransportOption) domain.TripPlan {
+func (s *AIPlanner) generateMockPlan(req domain.Trip, _ []domain.TransportOption) domain.TripPlan {
 	log.Println("⚠️ OpenAI Error or JSON Invalid. Switching to Mock Plan.")
 
 	// 1. Dummy Itinerary (Logic sederhana tetap sama)
@@ -334,9 +361,7 @@ func cleanJSON(raw []byte) []byte {
 	}
 
 	// Hapus ``` di akhir
-	if strings.HasSuffix(s, "```") {
-		s = strings.TrimSuffix(s, "```")
-	}
+	s = strings.TrimSuffix(s, "```")
 
 	return []byte(strings.TrimSpace(s))
 }

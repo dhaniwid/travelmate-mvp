@@ -2,9 +2,10 @@ package services
 
 import (
 	"context"
-	"github.com/google/uuid"
 	"log"
 	"travelmate/internal/domain"
+
+	"github.com/google/uuid"
 )
 
 // --- HELPERS & MINING FUNCTIONS ---
@@ -41,7 +42,7 @@ func (s *TripService) FinalizeAndSaveToDB(trip domain.Trip, plan domain.TripPlan
 	go s.mineTransports(ctx, trip.Origin, trip.Destination, plan.TransportOptions)
 }
 
-func (s *TripService) mineTransports(ctx context.Context, origin, dest string, transports []domain.TransportOption) {
+func (s *TripService) mineTransports(_ context.Context, origin, dest string, transports []domain.TransportOption) {
 	if origin == "" || dest == "" {
 		return
 	}

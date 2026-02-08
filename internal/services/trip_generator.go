@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
 	"log"
 	"math/rand"
 	"strings"
 	"sync"
 	"time"
 	"travelmate/internal/domain"
+
+	"github.com/google/uuid"
 )
 
 // GenerateTripStream ==========================================================
@@ -53,7 +54,7 @@ func (s *TripService) GenerateTripStream(ctx context.Context, trip domain.Trip, 
 }
 
 // Helper 1: Menangani Surprise Me & Metadata Awal
-func (s *TripService) resolveDestination(ctx context.Context, trip domain.Trip, eventChan chan string) (domain.Trip, error) {
+func (s *TripService) resolveDestination(_ context.Context, trip domain.Trip, eventChan chan string) (domain.Trip, error) {
 	meta := map[string]string{"trip_id": trip.ID}
 
 	if trip.Destination == "" {

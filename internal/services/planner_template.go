@@ -207,3 +207,21 @@ func (t *TemplatePlanner) GeneratePackingList(ctx context.Context, trip domain.T
 		},
 	}, nil
 }
+
+// GeneratePlan: Full Trip Plan (Itinerary + Logistics)
+func (t *TemplatePlanner) GeneratePlan(ctx context.Context, trip domain.Trip) (domain.TripPlan, error) {
+	plan, err := t.GenerateTransportAndStay(ctx, trip)
+	if err != nil {
+		return domain.TripPlan{}, err
+	}
+
+	itinerary, err := t.GenerateOnlyItinerary(ctx, trip)
+	if err != nil {
+		return domain.TripPlan{}, err
+	}
+
+	plan.Itinerary = itinerary
+	plan.PackingList, _ = t.GeneratePackingList(ctx, trip)
+
+	return plan, nil
+}

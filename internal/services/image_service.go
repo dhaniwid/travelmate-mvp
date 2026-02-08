@@ -68,7 +68,7 @@ func (s *ImageService) SearchImage(query string) string {
 	return getRandomPlaceholder(query)
 }
 
-func getRandomPlaceholder(keyword string) string {
+func getRandomPlaceholder(_ string) string {
 	placeholders := []string{
 		"https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&q=80",
 		"https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=800&q=80",
