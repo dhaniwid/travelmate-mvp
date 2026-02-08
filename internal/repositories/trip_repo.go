@@ -118,6 +118,25 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 		if err := json.Unmarshal(planDataRaw, &plan); err != nil {
 			fmt.Printf("Warning: Failed to unmarshal plan data: %v\n", err)
 		}
+	} else {
+		// FALLBACK: Jika plan_data di tabel trips kosong, coba cari di tabel legacy trip_plans
+		queryLegacy := `
+            SELECT 
+                trip_id, itinerary, budget_breakdown, transport_options, accommodation_options, decision_notes
+            FROM trip_plans
+            WHERE trip_id = $1
+        `
+		var itiJSON, budgetJSON, transportJSON, accomJSON, notesJSON []byte
+		errLegacy := r.DB.QueryRowContext(ctx, queryLegacy, id).Scan(
+			&plan.TripID, &itiJSON, &budgetJSON, &transportJSON, &accomJSON, &notesJSON,
+		)
+		if errLegacy == nil {
+			_ = json.Unmarshal(itiJSON, &plan.Itinerary)
+			_ = json.Unmarshal(budgetJSON, &plan.BudgetBreakdown)
+			_ = json.Unmarshal(transportJSON, &plan.TransportOptions)
+			_ = json.Unmarshal(accomJSON, &plan.AccommodationOptions)
+			_ = json.Unmarshal(notesJSON, &plan.DecisionNotes)
+		}
 	}
 
 	return &domain.TripAndPlan{
@@ -146,45 +165,31 @@ func (r *TripRepository) GetAllTrips(ctx context.Context) ([]domain.Trip, error)
 }
 
 func (r *TripRepository) SaveTripPlan(ctx context.Context, trip domain.Trip, plan domain.TripPlan) error {
-	// Memulai transaksi
-	tx, err := r.DB.BeginTx(ctx, nil)
+	// 1. Convert struct Plan menjadi JSON string
+	planJson, err := json.Marshal(plan)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal plan data: %w", err)
 	}
-	// Rollback otomatis jika terjadi error sebelum Commit
-	defer tx.Rollback()
 
-	// 1. Simpan metadata Trip
-	queryTrip := `
-        INSERT INTO trips (id, location_id, origin, destination, start_date, trip_days, style, budget, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)`
+	// 2. Simpan atau Update metadata Trip beserta plan_data-nya langsung di tabel 'trips'
+	// Kita gunakan UPSERT (ON CONFLICT) agar jika trip sudah ada (misal dari CreateTrip)
+	// maka plan_data-nya terupdate.
+	query := `
+        INSERT INTO trips (
+            id, location_id, origin, destination, start_date, trip_days, style, budget, plan_data, created_at
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (id) DO UPDATE SET 
+            plan_data = EXCLUDED.plan_data,
+            location_id = EXCLUDED.location_id
+    `
 
-	_, err = tx.ExecContext(ctx, queryTrip,
+	_, err = r.DB.ExecContext(ctx, query,
 		trip.ID, trip.LocationID, trip.Origin, trip.Destination,
-		trip.StartDate, trip.TripDays, trip.Style, trip.Budget)
-	if err != nil {
-		return err
-	}
+		trip.StartDate, trip.TripDays, trip.Style, trip.Budget, planJson)
 
-	// 2. Simpan Detail Plan (Itinerary, Transport, Accom dalam bentuk JSON)
-	queryPlan := `
-        INSERT INTO trip_plans (trip_id, itinerary, budget_breakdown, transport_options, accommodation_options, decision_notes)
-        VALUES ($1, $2, $3, $4, $5, $6)`
-
-	itineraryJSON, _ := json.Marshal(plan.Itinerary)
-	budgetJSON, _ := json.Marshal(plan.BudgetBreakdown)
-	transportJSON, _ := json.Marshal(plan.TransportOptions)
-	accomJSON, _ := json.Marshal(plan.AccommodationOptions)
-	notesJSON, _ := json.Marshal(plan.DecisionNotes)
-
-	_, err = tx.ExecContext(ctx, queryPlan,
-		trip.ID, itineraryJSON, budgetJSON, transportJSON, accomJSON, notesJSON)
-	if err != nil {
-		return err
-	}
-
-	// Commit transaksi jika semua langkah berhasil
-	return tx.Commit()
+	return err
 }
 
 func (r *TripRepository) GetExistingPlanByCriteria(ctx context.Context, destination, style string, days int) (*domain.TripPlan, error) {
@@ -376,17 +381,28 @@ func (r *TripRepository) ListTripsByUser(ctx context.Context, userID string) ([]
 }
 
 // [NEW] Fungsi untuk meng-klaim trip yang statusnya masih DRAFT/Generated
-func (r *TripRepository) ClaimTrip(ctx context.Context, tripID string, userID string) error {
+func (r *TripRepository) ClaimTrip(ctx context.Context, tripID string, userID string, planData *domain.TripPlan) error {
+	var planJson []byte
+	var err error
+
+	if planData != nil {
+		planJson, err = json.Marshal(planData)
+		if err != nil {
+			return fmt.Errorf("failed to marshal plan data: %w", err)
+		}
+	}
+
 	query := `
         UPDATE trips 
         SET 
             user_id = $1, 
             status = 'UPCOMING',
+            plan_data = COALESCE(NULLIF($2, 'null'::jsonb), plan_data),
             updated_at = NOW()
-        WHERE id = $2
+        WHERE id = $3
     `
 
-	result, err := r.DB.ExecContext(ctx, query, userID, tripID)
+	result, err := r.DB.ExecContext(ctx, query, userID, planJson, tripID)
 	if err != nil {
 		return fmt.Errorf("failed to claim trip: %w", err)
 	}

@@ -76,7 +76,7 @@ type Activity struct {
 
 	TransitTime   string `json:"transit_time"`   // e.g. "15 min"
 	TransitMethod string `json:"transit_method"` // e.g. "Walk" or "Taxi"
-	TransitPrice  int64  `json:"transit_price"`  // Estimasi biaya transport lokal (IDR)
+	TransitPrice  FlexibleInt64 `json:"transit_price"`  // Estimasi biaya transport lokal (IDR)
 
 	Alternatives []ActivityAlternative `json:"alternatives,omitempty"`
 }

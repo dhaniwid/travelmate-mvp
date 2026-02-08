@@ -25,6 +25,13 @@ services:
       - ./migrations/011_add_plan_data_to_trips.up.sql:/docker-entrypoint-initdb.d/011_add_plan_data_to_trips.up.sql
       - ./migrations/012_fix_user_id_type.up.sql:/docker-entrypoint-initdb.d/012_fix_user_id_type.up.sql
       - ./migrations/013_add_alternatives_prompt.sql:/docker-entrypoint-initdb.d/013_add_alternatives_prompt.sql
+      - ./migrations/014_update_prompts.sql:/docker-entrypoint-initdb.d/014_update_prompts.sql
+      - ./migrations/015_alter_table_trips.sql:/docker-entrypoint-initdb.d/015_alter_table_trips.sql
+      - ./migrations/016_create_master_vibes.sql:/docker-entrypoint-initdb.d/016_create_master_vibes.sql
+      - ./migrations/017_insert_prompt_planner_agent.sql:/docker-entrypoint-initdb.d/017_insert_prompt_planner_agent.sql
+      - ./migrations/018_update_prompt_generate_itinerary.sql:/docker-entrypoint-initdb.d/018_update_prompt_generate_itinerary.sql
+      - ./migrations/019_update_trips_table.sql:/docker-entrypoint-initdb.d/019_update_trips_table.sql
+      - ./migrations/020_cron_job_delete_trips.sql:/docker-entrypoint-initdb.d/020_cron_job_delete_trips.sql
 
 volumes:
   db_data:

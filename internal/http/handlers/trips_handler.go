@@ -127,8 +127,9 @@ func (h *TripHandler) SaveTrip(c *gin.Context) {
 	// Kita bisa buat struct request kecil agar tidak perlu bind seluruh object Trip yang besar
 	// karena kita hanya butuh ID dan UserID.
 	var req struct {
-		ID     string `json:"id"`
-		UserID string `json:"user_id"` // Biasanya ini otomatis dari Middleware Auth, tapi kita ikuti flow kamu
+		ID       string           `json:"id"`
+		UserID   string           `json:"user_id"`
+		PlanData *domain.TripPlan `json:"plan_data"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -147,8 +148,9 @@ func (h *TripHandler) SaveTrip(c *gin.Context) {
 
 	// Buat object domain trip dummy hanya untuk passing data ke service
 	trip := &domain.Trip{
-		ID:     req.ID,
-		UserID: req.UserID,
+		ID:       req.ID,
+		UserID:   req.UserID,
+		PlanData: req.PlanData,
 	}
 
 	// Panggil Service

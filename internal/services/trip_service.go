@@ -83,7 +83,7 @@ func (s *TripService) SaveUserTrip(ctx context.Context, trip *domain.Trip) error
 	// if userIsFree && count >= 3 { return error }
 
 	// Panggil Repo untuk UPDATE (Claim), bukan Create
-	return s.TripRepo.ClaimTrip(ctx, trip.ID, trip.UserID)
+	return s.TripRepo.ClaimTrip(ctx, trip.ID, trip.UserID, trip.PlanData)
 }
 
 func (s *TripService) DeleteUserTrip(ctx context.Context, tripID string, userID string) error {
