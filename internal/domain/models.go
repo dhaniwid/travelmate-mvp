@@ -4,6 +4,11 @@ import (
 	"time"
 )
 
+type Coordinates struct {
+	Lat float64 `json:"lat"`
+	Lng float64 `json:"lng"`
+}
+
 // ==========================================
 // 1. TRIP & PLAN CORE
 // ==========================================
@@ -30,7 +35,7 @@ type TripPlan struct {
 	Itinerary       []ItineraryDay  `json:"itinerary"`
 	BudgetBreakdown BudgetBreakdown `json:"budget_breakdown"`
 	/// Logistics Section
-	LogisticsContext     LogisticsContext      `json:"logistics_context"`
+	LogisticsContext     *LogisticsContext     `json:"logistics_context"`
 	TransportOptions     []TransportOption     `json:"transport_options"`
 	AccommodationOptions []AccommodationOption `json:"strategic_accommodation"`
 	DecisionNotes        []string              `json:"decision_notes"`
@@ -52,10 +57,10 @@ type TripAndPlan struct {
 // ==========================================
 
 type ItineraryDay struct {
-	Day             int             `json:"day"`
-	Title           string          `json:"title"`
-	MorningBriefing MorningBriefing `json:"morning_briefing"` // <-- NEW: Contextual Intelligence
-	Activities      []Activity      `json:"activities"`
+	Day             int              `json:"day"`
+	Title           string           `json:"title"`
+	MorningBriefing *MorningBriefing `json:"morning_briefing"` // <-- NEW: Contextual Intelligence
+	Activities      []Activity       `json:"activities"`
 }
 
 type MorningBriefing struct {
@@ -71,12 +76,14 @@ type Activity struct {
 	Description string `json:"description"`
 	PlaceName   string `json:"place_name"`
 
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
+	Latitude    *float64     `json:"latitude"`
+	Longitude   *float64     `json:"longitude"`
+	Coordinates *Coordinates `json:"coordinates"`
 
-	TransitTime   string `json:"transit_time"`   // e.g. "15 min"
-	TransitMethod string `json:"transit_method"` // e.g. "Walk" or "Taxi"
+	TransitTime   string        `json:"transit_time"`   // e.g. "15 min"
+	TransitMethod string        `json:"transit_method"` // e.g. "Walk" or "Taxi"
 	TransitPrice  FlexibleInt64 `json:"transit_price"`  // Estimasi biaya transport lokal (IDR)
+	LocationType  string        `json:"location_type"`  // specific | generic
 
 	Alternatives []ActivityAlternative `json:"alternatives,omitempty"`
 }

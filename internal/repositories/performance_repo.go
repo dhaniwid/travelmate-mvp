@@ -54,7 +54,7 @@ func (r *PerformanceRepository) GetRecentStats(ctx context.Context) ([]domain.Pe
 		if err := rows.Scan(&s.TaskName, &s.AvgLatency, &s.MaxLatency, &s.TotalCalls); err != nil {
 			return nil, err
 		}
-		stats = append(stats)
+		stats = append(stats, s)
 	}
 	return stats, nil
 }

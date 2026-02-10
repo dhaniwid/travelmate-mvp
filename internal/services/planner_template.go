@@ -42,7 +42,7 @@ func (t *TemplatePlanner) GenerateTransportAndStay(ctx context.Context, trip dom
 		TripID: trip.ID,
 
 		// 1. Context
-		LogisticsContext: domain.LogisticsContext{
+		LogisticsContext: &domain.LogisticsContext{
 			DistanceKM:   150,
 			RouteType:    "Inter-City", // Updated Field
 			WarningAlert: "⚠️ TEMPLATE MODE: Showing dummy data for testing.",

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"travelmate/internal/domain"
 )
 
@@ -115,8 +116,17 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 
 	var plan domain.TripPlan
 	if len(planDataRaw) > 0 {
+		// PEEK: Check if it's double-encoded (starts with double quote)
+		// This happens if data was stringified twice before save.
+		if len(planDataRaw) > 2 && planDataRaw[0] == '"' {
+			var unquoted string
+			if err := json.Unmarshal(planDataRaw, &unquoted); err == nil {
+				planDataRaw = []byte(unquoted)
+			}
+		}
+
 		if err := json.Unmarshal(planDataRaw, &plan); err != nil {
-			fmt.Printf("Warning: Failed to unmarshal plan data: %v\n", err)
+			log.Printf("⚠️ Warning: Failed to unmarshal plan_data for trip %s: %v. This might be due to schema changes or legacy data.", id, err)
 		}
 	} else {
 		// FALLBACK: Jika plan_data di tabel trips kosong, coba cari di tabel legacy trip_plans
@@ -137,6 +147,11 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 			_ = json.Unmarshal(accomJSON, &plan.AccommodationOptions)
 			_ = json.Unmarshal(notesJSON, &plan.DecisionNotes)
 		}
+	}
+
+	// Double check TripID population
+	if plan.TripID == "" {
+		plan.TripID = id
 	}
 
 	return &domain.TripAndPlan{
@@ -234,6 +249,10 @@ func (r *TripRepository) GetExistingPlanByCriteria(ctx context.Context, destinat
 	_ = json.Unmarshal(transportJSON, &plan.TransportOptions)
 	_ = json.Unmarshal(accomJSON, &plan.AccommodationOptions)
 	_ = json.Unmarshal(decisionNotes, &plan.DecisionNotes)
+
+	if plan.TripID == "" {
+		// Try to fallback if not scanned
+	}
 
 	return &plan, nil
 }

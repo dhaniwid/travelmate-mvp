@@ -117,7 +117,7 @@ func (p *AIPlanner) GenerateTransportAndStay(ctx context.Context, trip domain.Tr
 	// 2. Return TripPlan (Map dari temporary struct ke domain)
 	return domain.TripPlan{
 		TripID:               trip.ID,
-		LogisticsContext:     logisticsResp.LogisticsContext,
+		LogisticsContext:     &logisticsResp.LogisticsContext,
 		TransportOptions:     logisticsResp.TransportOptions,
 		AccommodationOptions: logisticsResp.StrategicAccommodation,
 	}, nil
@@ -285,7 +285,7 @@ func (s *AIPlanner) generateMockPlan(req domain.Trip, _ []domain.TransportOption
 		BudgetBreakdown:      budget,
 		TransportOptions:     transportOpts,
 		AccommodationOptions: accomOpts,
-		LogisticsContext:     logContext,
+		LogisticsContext:     &logContext,
 		DecisionNotes:        []string{"⚠️ This is a generated mock plan because AI service is unavailable."},
 	}
 }
