@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 	"travelmate/internal/domain"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -66,10 +67,17 @@ func (p *AIPlanner) GetDiscoveryInfo(ctx context.Context, city string) (*domain.
 func (p *AIPlanner) GenerateOnlyItinerary(ctx context.Context, trip domain.Trip) (domain.ItineraryResponse, error) {
 	var rawResponse json.RawMessage
 
+	// Performance monitoring
+	startTime := time.Now()
+	log.Printf("⏱️ [PERF] Starting Itinerary AI Request for %s", trip.Destination)
+
 	if err := p.requestAI(ctx, "planner_itinerary_system", trip, &rawResponse); err != nil {
 		fmt.Printf("❌ [AI DEBUG] Request AI Failed: %v\n", err)
 		return domain.ItineraryResponse{}, err
 	}
+
+	elapsed := time.Since(startTime)
+	log.Printf("⏱️ [PERF] Itinerary AI Request completed in: %v", elapsed)
 
 	cleanData := cleanJSON(rawResponse)
 

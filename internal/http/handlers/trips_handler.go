@@ -60,6 +60,9 @@ func (h *TripHandler) CreateTripStream(c *gin.Context) {
 			fmt.Fprintf(w, "%s\n", event)
 			return true
 		case <-doneChan:
+			// Send final "done" event before closing
+			doneEvent := `{"type":"done","data":{}}`
+			fmt.Fprintf(w, "%s\n", doneEvent)
 			return false
 		case <-c.Request.Context().Done():
 			return false
