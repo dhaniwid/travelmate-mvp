@@ -329,3 +329,43 @@ type PerformanceStats struct {
 	MaxLatency int     `json:"max_latency"`
 	TotalCalls int     `json:"total_calls"`
 }
+
+// ==========================================
+// 7. USER & SUBSCRIPTION
+// ==========================================
+
+type User struct {
+	ID                    int        `json:"id"`
+	UserID                string     `json:"user_id"` // Clerk ID
+	Email                 string     `json:"email"`
+	Name                  string     `json:"name"`
+	SubscriptionTier      string     `json:"subscription_tier"`
+	SubscriptionStatus    string     `json:"subscription_status"`
+	SubscriptionStartedAt *time.Time `json:"subscription_started_at"`
+	SubscriptionEndsAt    *time.Time `json:"subscription_ends_at"`
+	StripeCustomerID      string     `json:"stripe_customer_id"`
+	StripeSubscriptionID  string     `json:"stripe_subscription_id"`
+	CreatedAt             time.Time  `json:"created_at"`
+	UpdatedAt             time.Time  `json:"updated_at"`
+}
+
+type TripQuota struct {
+	UserID       string    `json:"user_id"`
+	Month        string    `json:"month"` // YYYY-MM
+	TripsCreated int       `json:"trips_created"`
+	QuotaLimit   int       `json:"quota_limit"`
+	Remaining    int       `json:"remaining"`    // Virtual field
+	IsUnlimited  bool      `json:"is_unlimited"` // Virtual field
+	LastReset    time.Time `json:"last_reset"`
+}
+
+type SubscriptionEvent struct {
+	ID            string    `json:"id"`
+	UserID        string    `json:"user_id"`
+	EventType     string    `json:"event_type"`
+	FromTier      string    `json:"from_tier"`
+	ToTier        string    `json:"to_tier"`
+	StripeEventID string    `json:"stripe_event_id"`
+	Metadata      string    `json:"metadata"` // JSON string
+	CreatedAt     time.Time `json:"created_at"`
+}

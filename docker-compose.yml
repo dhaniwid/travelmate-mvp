@@ -32,6 +32,17 @@ services:
       - ./migrations/018_update_prompt_generate_itinerary.sql:/docker-entrypoint-initdb.d/018_update_prompt_generate_itinerary.sql
       - ./migrations/019_update_trips_table.sql:/docker-entrypoint-initdb.d/019_update_trips_table.sql
       - ./migrations/020_cron_job_delete_trips.sql:/docker-entrypoint-initdb.d/020_cron_job_delete_trips.sql
+      - ./migrations/020_update_location_type_prompt.sql:/docker-entrypoint-initdb.d/020_update_location_type_prompt.sql
+      - ./migrations/021_update_logistics_prompt.sql:/docker-entrypoint-initdb.d/021_update_logistics_prompt.sql
+      - ./migrations/022_refine_essentials_prompt.sql:/docker-entrypoint-initdb.d/022_refine_essentials_prompt.sql
+      - ./migrations/023_force_essentials_data.sql:/docker-entrypoint-initdb.d/023_force_essentials_data.sql
+      - ./migrations/024_split_planner_prompts.sql:/docker-entrypoint-initdb.d/024_split_planner_prompts.sql
+      - ./migrations/025_add_briefing_to_itinerary.sql:/docker-entrypoint-initdb.d/025_add_briefing_to_itinerary.sql
+      - ./migrations/026_merge_discovery_to_itinerary.sql:/docker-entrypoint-initdb.d/026_merge_discovery_to_itinerary.sql
+      - ./migrations/027_update_logistics_prompt_airlines.sql:/docker-entrypoint-initdb.d/027_update_logistics_prompt_airlines.sql
+      - ./migrations/028_add_subscription_to_users.sql:/docker-entrypoint-initdb.d/028_add_subscription_to_users.sql
+      - ./migrations/029_create_trip_quotas.sql:/docker-entrypoint-initdb.d/029_create_trip_quotas.sql
+      - ./migrations/030_create_subscription_events.sql:/docker-entrypoint-initdb.d/030_create_subscription_events.sql
 
 volumes:
   db_data:

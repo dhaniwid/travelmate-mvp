@@ -8,6 +8,7 @@ import (
 	"travelmate/internal/http/handlers"
 	"travelmate/internal/repositories"
 	"travelmate/internal/services"
+	stripePkg "travelmate/internal/stripe"
 
 	_ "github.com/lib/pq"
 )
@@ -30,10 +31,17 @@ func main() {
 	perfRepo := repositories.NewPerformanceRepository(database)
 	perfRepo.PrintStartupDashboard()
 	discoveryRepo := repositories.NewDiscoveryRepo(database)
+	userRepo := repositories.NewUserRepository(database)
+	subRepo := repositories.NewSubscriptionRepository(database)
 
 	// 4. Services (Dependency Injection)
 	promptService := services.NewPromptService(database)
 	imageSvc := services.NewImageService(cfg.GoogleAPIKey, cfg.GoogleCXId)
+
+	// Stripe Client
+	stripeClient := stripePkg.NewClient(cfg.StripeSecretKey, cfg.StripeWebhookKey)
+
+	subService := services.NewSubscriptionService(userRepo, subRepo, stripeClient)
 
 	var plannerEngine services.PlannerEngine
 	if cfg.OpenAIKey != "" {
@@ -53,9 +61,11 @@ func main() {
 	// 5. Handlers
 	tripHandler := handlers.NewTripHandler(tripService)
 	fbHandler := handlers.NewFeedbackHandler(tripService)
+	subHandler := handlers.NewSubscriptionHandler(subService)
+	webhookHandler := handlers.NewWebhookHandler(subService, stripeClient)
 
 	// 6. Router
-	r := http.SetupRouter(tripHandler, fbHandler)
+	r := http.SetupRouter(tripHandler, fbHandler, subHandler, webhookHandler)
 
 	// 7. Run
 	log.Printf("Server running on port %s", cfg.Port)

@@ -1,16 +1,19 @@
 package http
 
 import (
-	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/gin"
 	"time"
 	"travelmate/internal/http/handlers"
 	"travelmate/internal/http/middleware"
+
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
 )
 
 func SetupRouter(
 	tripHandler *handlers.TripHandler,
 	fbHandler *handlers.FeedbackHandler,
+	subHandler *handlers.SubscriptionHandler,
+	webhookHandler *handlers.WebhookHandler,
 ) *gin.Engine {
 
 	r := gin.New()
@@ -23,7 +26,7 @@ func SetupRouter(
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "OPTIONS", "PUT", "DELETE"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With", "X-User-ID"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With", "X-User-ID", "Stripe-Signature"},
 		ExposeHeaders:    []string{"Content-Length", "Connection", "Cache-Control", "Transfer-Encoding"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
@@ -50,6 +53,9 @@ func SetupRouter(
 			v1.POST("/alternatives", tripHandler.GetAlternatives)
 			v1.POST("/trips/:id/feedback", fbHandler.SubmitFeedback)
 
+			// 4. Webhooks (Public)
+			api.POST("/webhooks/stripe", webhookHandler.HandleStripeWebhook)
+
 			// ============================================================
 			// 🔒 PROTECTED ROUTES (Requires Clerk Authentication)
 			// ============================================================
@@ -59,6 +65,10 @@ func SetupRouter(
 				protected.GET("/trips", tripHandler.ListTrips)
 				protected.POST("/trips/save", tripHandler.SaveTrip)
 				protected.DELETE("/trips/:id", tripHandler.DeleteTrip)
+
+				// 4. Subscription & Quota
+				protected.GET("/user/subscription", subHandler.GetSubscription)
+				protected.GET("/user/quota", subHandler.GetQuota)
 			}
 		}
 	}

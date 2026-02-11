@@ -8,12 +8,14 @@ import (
 )
 
 type Config struct {
-	Port         string
-	DBUrl        string
-	OpenAIKey    string
-	AllowOrigins string
-	GoogleAPIKey string
-	GoogleCXId   string
+	Port             string
+	DBUrl            string
+	OpenAIKey        string
+	AllowOrigins     string
+	GoogleAPIKey     string
+	GoogleCXId       string
+	StripeSecretKey  string
+	StripeWebhookKey string
 }
 
 func LoadConfig() *Config {
@@ -26,12 +28,14 @@ func LoadConfig() *Config {
 	}
 
 	return &Config{
-		Port:         getEnv("PORT", "8080"),
-		DBUrl:        dbUrl,
-		OpenAIKey:    os.Getenv("OPENAI_API_KEY"),
-		AllowOrigins: "*",
-		GoogleAPIKey: os.Getenv("GOOGLE_API_KEY"),
-		GoogleCXId:   os.Getenv("GOOGLE_CX_ID"),
+		Port:             getEnv("PORT", "8080"),
+		DBUrl:            dbUrl,
+		OpenAIKey:        os.Getenv("OPENAI_API_KEY"),
+		AllowOrigins:     "*",
+		GoogleAPIKey:     os.Getenv("GOOGLE_API_KEY"),
+		GoogleCXId:       os.Getenv("GOOGLE_CX_ID"),
+		StripeSecretKey:  os.Getenv("STRIPE_SECRET_KEY"),
+		StripeWebhookKey: os.Getenv("STRIPE_WEBHOOK_SECRET"),
 	}
 }
 
