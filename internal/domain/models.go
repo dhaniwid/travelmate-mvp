@@ -39,17 +39,48 @@ type TripPlan struct {
 	TransportOptions     []TransportOption     `json:"transport_options"`
 	AccommodationOptions []AccommodationOption `json:"strategic_accommodation"`
 	DecisionNotes        []string              `json:"decision_notes"`
-	PackingList          []PackingItem         `json:"packing_list"` // The new AI feature!
+	PackingList          []PackingCategory     `json:"packing_list"`  // Updated type
+	ArrivalGuide         *ArrivalGuide         `json:"arrival_guide"` // New Field
+	MorningBriefing      string                `json:"morning_briefing"`
+	Highlights           []TripHighlight       `json:"highlights"`
+
+	// --- Discovery Features (Merged from DiscoveryView) ---
+	Tagline           string              `json:"tagline"`
+	Vibes             []string            `json:"vibes"`
+	CulinarySignature []CulinarySignature `json:"culinary_signature"`
+	HiddenGem         *HiddenGem          `json:"hidden_gem"`
+	HistorySnippet    string              `json:"history_snippet"`
 }
 
-type PackingItem struct {
-	Category string   `json:"category"` // Contoh: "Clothing", "Toiletries"
-	Items    []string `json:"items"`    // Contoh: ["T-Shirt", "Jacket", "Jeans"]
+type ItineraryResponse struct {
+	Itinerary         []ItineraryDay      `json:"itinerary"`
+	MorningBriefing   string              `json:"morning_briefing"`
+	Highlights        []TripHighlight     `json:"highlights"`
+	Tagline           string              `json:"tagline"`
+	Vibes             []string            `json:"vibes"`
+	CulinarySignature []CulinarySignature `json:"culinary_signature"`
+	HiddenGem         *HiddenGem          `json:"hidden_gem"`
+	HistorySnippet    string              `json:"history_snippet"`
 }
 
-type TripAndPlan struct {
-	Trip Trip     `json:"trip"`
-	Plan TripPlan `json:"plan"`
+type TripHighlight struct {
+	Title       string `json:"title"`
+	Type        string `json:"type"` // e.g. "Nature", "Culture"
+	Hook        string `json:"hook"` // Hook atau alasan singkat
+	ImagePrompt string `json:"image_prompt"`
+}
+
+type ArrivalGuide struct {
+	PrimaryTransport    string `json:"primary_transport"`     // "Plane"
+	TravelTime          string `json:"travel_time"`           // "6h 30m"
+	EstimatedPriceRange string `json:"estimated_price_range"` // "$200 - $400"
+	VisaInfo            string `json:"visa_info"`
+	BestTimeVisit       string `json:"best_time_visit"`
+}
+
+type PackingCategory struct {
+	Category string   `json:"category"` // "Clothing"
+	Items    []string `json:"items"`    // ["Light jacket", "Sneakers"]
 }
 
 // ==========================================
@@ -59,14 +90,14 @@ type TripAndPlan struct {
 type ItineraryDay struct {
 	Day             int              `json:"day"`
 	Title           string           `json:"title"`
-	MorningBriefing *MorningBriefing `json:"morning_briefing"` // <-- NEW: Contextual Intelligence
+	MorningBriefing *MorningBriefing `json:"morning_briefing"`
 	Activities      []Activity       `json:"activities"`
 }
 
 type MorningBriefing struct {
-	WeatherForecast string `json:"weather_forecast"` // e.g. "Sunny, 28°C"
-	OutfitTip       string `json:"outfit_tip"`       // e.g. "Wear light cotton"
-	LocalVibe       string `json:"local_vibe"`       // e.g. "Busy market day"
+	WeatherForecast string `json:"weather_forecast"`
+	OutfitTip       string `json:"outfit_tip"`
+	LocalVibe       string `json:"local_vibe"`
 }
 
 type Activity struct {
@@ -80,10 +111,10 @@ type Activity struct {
 	Longitude   *float64     `json:"longitude"`
 	Coordinates *Coordinates `json:"coordinates"`
 
-	TransitTime   string        `json:"transit_time"`   // e.g. "15 min"
-	TransitMethod string        `json:"transit_method"` // e.g. "Walk" or "Taxi"
-	TransitPrice  FlexibleInt64 `json:"transit_price"`  // Estimasi biaya transport lokal (IDR)
-	LocationType  string        `json:"location_type"`  // specific | generic
+	TransitTime   string `json:"transit_time"`
+	TransitMethod string `json:"transit_method"`
+	TransitPrice  int64  `json:"transit_price"`
+	LocationType  string `json:"location_type"`
 
 	Alternatives []ActivityAlternative `json:"alternatives,omitempty"`
 }
@@ -110,50 +141,58 @@ type TouristAttraction struct {
 // ==========================================
 
 type BudgetBreakdown struct {
-	Transport     FlexibleInt64 `json:"transport"`
-	Accommodation FlexibleInt64 `json:"accommodation"`
-	Food          FlexibleInt64 `json:"food"`
-	Tickets       FlexibleInt64 `json:"tickets"`
-	Misc          FlexibleInt64 `json:"misc"`
+	Transport     int64 `json:"transport"`
+	Accommodation int64 `json:"accommodation"`
+	Food          int64 `json:"food"`
+	Tickets       int64 `json:"tickets"`
+	Misc          int64 `json:"misc"`
 }
 
-// 1. New Helper Structs (Nested Objects)
 type TransportBreakdown struct {
-	FirstMile string `json:"first_mile"` // e.g., "Taxi to Halim (45m)"
-	MainLeg   string `json:"main_leg"`   // e.g., "Whoosh to Padalarang (30m)"
-	LastMile  string `json:"last_mile"`  // e.g., "Feeder to City (20m)"
+	FirstMile string `json:"first_mile"`
+	MainLeg   string `json:"main_leg"`
+	LastMile  string `json:"last_mile"`
 }
 
 type HubDetails struct {
-	DepartureNode string `json:"departure_node"` // e.g., "Halim Station"
-	ArrivalNode   string `json:"arrival_node"`   // e.g., "Padalarang Station"
+	DepartureNode string `json:"departure_node"`
+	ArrivalNode   string `json:"arrival_node"`
 }
 
 type LogisticsContext struct {
 	DistanceKM   int    `json:"distance_km"`
-	RouteType    string `json:"route_type"`    // e.g., "Inter-City" | "Inter-Island"
-	WarningAlert string `json:"warning_alert"` // e.g., "Heavy traffic on Friday"
+	RouteType    string `json:"route_type"`
+	WarningAlert string `json:"warning_alert"`
 }
 
-// 2. Updated Transport Option
 type TransportOption struct {
-	StrategyTag          string             `json:"strategy_tag"` // CEPAT | HEMAT
+	StrategyTag          string             `json:"strategy_tag"`
 	Name                 string             `json:"name"`
-	PriceTier            string             `json:"price_tier"`             // LOW | MED | HIGH
-	TotalDurationDisplay string             `json:"total_duration_display"` // Ganti estimated_time
+	PriceTier            string             `json:"price_tier"`
+	TotalDurationDisplay string             `json:"total_duration_display"`
 	HubDetails           HubDetails         `json:"hub_details"`
 	Breakdown            TransportBreakdown `json:"breakdown"`
-	OperatorsHint        string             `json:"operators_hint"` // NEW: "Garuda, Citilink"
-	BookingQuery         string             `json:"booking_query"`  // NEW: "flight jakarta to bali"
+	OperatorsHint        string             `json:"operators_hint"`
+	BookingQuery         string             `json:"booking_query"`
 	Pros                 string             `json:"pros"`
 }
 
+type TripAndPlan struct {
+	Trip Trip     `json:"trip"`
+	Plan TripPlan `json:"plan"`
+}
+
+// ==========================================
+// 4. PACKING & OTHERS
+// ==========================================
+
 // 3. Updated Accommodation Option
 type AccommodationOption struct {
-	Type                 string `json:"type"`                  // Hotel | Villa
-	AreaName             string `json:"area_name"`             // Ganti location_area
-	RecommendationReason string `json:"recommendation_reason"` // Ganti location_note
-	Vibe                 string `json:"vibe"`                  // Ganti description
+	Type                 string   `json:"type"`              // Hotel | Villa
+	AreaName             string   `json:"area_name"`         // Ganti location_area
+	RecommendationReason string   `json:"reason"`            // FIXED: Matches prompt "reason"
+	Vibe                 string   `json:"vibe"`              // Ganti description
+	HotelSuggestions     []string `json:"hotel_suggestions"` // CHANGED from string to []string
 }
 
 // ==========================================
@@ -163,10 +202,19 @@ type AccommodationOption struct {
 // AIPlannerResponse: Struct bayangan untuk menangkap Raw JSON dari AI Planner
 type AIPlannerResponse struct {
 	Itinerary            []ItineraryDay        `json:"itinerary"`
-	BudgetBreakdown      BudgetBreakdown       `json:"budget_breakdown"` // Fixed: Object, not Array
+	BudgetBreakdown      BudgetBreakdown       `json:"budget_breakdown"`
 	TransportOptions     []TransportOption     `json:"transport_options"`
-	AccommodationOptions []AccommodationOption `json:"accommodation_options"`
+	AccommodationOptions []AccommodationOption `json:"strategic_accommodation"`
 	DecisionNotes        []string              `json:"decision_notes"`
+	ArrivalGuide         *ArrivalGuide         `json:"arrival_guide"` // New Field
+	PackingList          []PackingCategory     `json:"packing_list"`  // New Field
+	MorningBriefing      string                `json:"morning_briefing"`
+	Highlights           []TripHighlight       `json:"highlights"`
+	Tagline              string                `json:"tagline"`
+	Vibes                []string              `json:"vibes"`
+	CulinarySignature    []CulinarySignature   `json:"culinary_signature"`
+	HiddenGem            *HiddenGem            `json:"hidden_gem"`
+	HistorySnippet       string                `json:"history_snippet"`
 }
 
 type LocationMetadataResponse struct {

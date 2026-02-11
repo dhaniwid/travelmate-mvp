@@ -7,9 +7,9 @@ import (
 
 type PlannerEngine interface {
 	GetDiscoveryInfo(ctx context.Context, city string) (*domain.DiscoveryResponse, error)
-	GenerateOnlyItinerary(ctx context.Context, trip domain.Trip) ([]domain.ItineraryDay, error)
+	GenerateOnlyItinerary(ctx context.Context, trip domain.Trip) (domain.ItineraryResponse, error)
 	GenerateTransportAndStay(ctx context.Context, trip domain.Trip) (domain.TripPlan, error)
 	GenerateAlternatives(ctx context.Context, dest, activity, location string, tags []string) ([]domain.ActivityAlternative, error)
-	GeneratePackingList(ctx context.Context, trip domain.Trip) ([]domain.PackingItem, error)
+	GeneratePackingList(ctx context.Context, trip domain.Trip) ([]domain.PackingCategory, error)
 	GeneratePlan(ctx context.Context, trip domain.Trip) (domain.TripPlan, error)
 }

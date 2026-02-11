@@ -63,63 +63,51 @@ func (p *AIPlanner) GetDiscoveryInfo(ctx context.Context, city string) (*domain.
 }
 
 // GenerateOnlyItinerary Fitur "Plan Itinerary"
-func (p *AIPlanner) GenerateOnlyItinerary(ctx context.Context, trip domain.Trip) ([]domain.ItineraryDay, error) {
+func (p *AIPlanner) GenerateOnlyItinerary(ctx context.Context, trip domain.Trip) (domain.ItineraryResponse, error) {
 	var rawResponse json.RawMessage
-
-	// 1. Log Start Request
-	//fmt.Printf("🔍 [AI DEBUG] Requesting Itinerary for Trip ID: %s, Destination: %s\n", trip.ID, trip.Destination)
 
 	if err := p.requestAI(ctx, "planner_itinerary_system", trip, &rawResponse); err != nil {
 		fmt.Printf("❌ [AI DEBUG] Request AI Failed: %v\n", err)
-		return nil, err
+		return domain.ItineraryResponse{}, err
 	}
 
 	cleanData := cleanJSON(rawResponse)
 
-	// --- Percobaan Parsing 1: Wrapper Object ---
-	var wrapper struct {
-		Itinerary []domain.ItineraryDay `json:"itinerary"`
-	}
-	if err := json.Unmarshal(cleanData, &wrapper); err == nil && len(wrapper.Itinerary) > 0 {
-		return wrapper.Itinerary, nil
-	} else if err != nil {
-		fmt.Printf("⚠️ [AI DEBUG] Wrapper Unmarshal failed: %v\n", err)
-	}
-
-	// --- Percobaan Parsing 2: Direct Array ---
-	var directArray []domain.ItineraryDay
-	if err := json.Unmarshal(cleanData, &directArray); err == nil && len(directArray) > 0 {
-		return directArray, nil
-	} else if err != nil {
-		fmt.Printf("⚠️ [AI DEBUG] Direct Array Unmarshal failed: %v\n", err)
+	// Define strict schema locally to capture everything
+	var resp domain.ItineraryResponse
+	if err := json.Unmarshal(cleanData, &resp); err != nil {
+		fmt.Printf("⚠️ [AI DEBUG] Itinerary Unmarshal failed: %v\n", err)
+		// Fallback check if it is direct array (old format)
+		var directArray []domain.ItineraryDay
+		if err2 := json.Unmarshal(cleanData, &directArray); err2 == nil {
+			return domain.ItineraryResponse{Itinerary: directArray}, nil
+		}
+		return domain.ItineraryResponse{}, fmt.Errorf("failed to parse itinerary JSON")
 	}
 
-	fmt.Println("❌ [AI DEBUG] Failed to parse itinerary JSON in both formats")
-	return nil, fmt.Errorf("failed to parse itinerary JSON")
+	return resp, nil
 }
 
 // GenerateTransportAndStay Fitur "Expert Logistics"
 func (p *AIPlanner) GenerateTransportAndStay(ctx context.Context, trip domain.Trip) (domain.TripPlan, error) {
 	var logisticsResp struct {
-		LogisticsContext       domain.LogisticsContext      `json:"logistics_context"`
-		TransportOptions       []domain.TransportOption     `json:"transport_options"`
+		ArrivalGuide           domain.ArrivalGuide          `json:"arrival_guide"`
 		StrategicAccommodation []domain.AccommodationOption `json:"strategic_accommodation"`
+		BudgetBreakdown        domain.BudgetBreakdown       `json:"budget_breakdown"`
 	}
 
-	// 1. Request ke AI
+	// 1. Request ke AI - Use specialized logistics prompt
 	if err := p.requestAI(ctx, "planner_logistics_system", trip, &logisticsResp); err != nil {
 		fmt.Printf("❌ Logistics AI Error: %v\n", err)
 		return domain.TripPlan{}, err
 	}
 
-	//fmt.Printf("🛎️ AI Logistics Response: %+v\n", logisticsResp)
-
 	// 2. Return TripPlan (Map dari temporary struct ke domain)
 	return domain.TripPlan{
 		TripID:               trip.ID,
-		LogisticsContext:     &logisticsResp.LogisticsContext,
-		TransportOptions:     logisticsResp.TransportOptions,
+		ArrivalGuide:         &logisticsResp.ArrivalGuide,
 		AccommodationOptions: logisticsResp.StrategicAccommodation,
+		BudgetBreakdown:      logisticsResp.BudgetBreakdown,
 	}, nil
 }
 
@@ -144,10 +132,10 @@ func (p *AIPlanner) GenerateAlternatives(ctx context.Context, dest, activity, lo
 }
 
 // GeneratePackingList Membuat daftar bawaan cerdas berdasarkan destinasi, durasi, dan style trip
-func (p *AIPlanner) GeneratePackingList(ctx context.Context, trip domain.Trip) ([]domain.PackingItem, error) {
+func (p *AIPlanner) GeneratePackingList(ctx context.Context, trip domain.Trip) ([]domain.PackingCategory, error) {
 	// 1. Siapkan struct wrapper untuk menangkap JSON output
 	var result struct {
-		PackingList []domain.PackingItem `json:"packing_list"`
+		PackingList []domain.PackingCategory `json:"packing_list"`
 	}
 
 	// 2. Request ke OpenAI
@@ -157,32 +145,52 @@ func (p *AIPlanner) GeneratePackingList(ctx context.Context, trip domain.Trip) (
 		return nil, err
 	}
 
+	log.Printf("DEBUG [AI-PACKING]: Parsed Struct Count: %d categories", len(result.PackingList))
 	return result.PackingList, nil
 }
 
 // GeneratePlan Menggabungkan Itinerary dan Logistik ke dalam satu rencana perjalanan penuh
 func (p *AIPlanner) GeneratePlan(ctx context.Context, trip domain.Trip) (domain.TripPlan, error) {
-	// 1. Generate Itinerary
-	itinerary, err := p.GenerateOnlyItinerary(ctx, trip)
-	if err != nil {
-		// Jika gagal AI, fallback ke Mock Plan menyeluruh
+	// NEW: Monolithic Prompt Approach (One-Shot Generation)
+	// We use "planner_itinerary_system" which now returns EVERYTHING.
+
+	var rawResponse json.RawMessage
+	if err := p.requestAI(ctx, "planner_itinerary_system", trip, &rawResponse); err != nil {
+		fmt.Printf("❌ [AI DEBUG] Request AI Failed: %v\n", err)
+		return p.generateMockPlan(trip, nil), nil // Fallback
+	}
+
+	cleanData := cleanJSON(rawResponse)
+
+	// Define strict schema locally to capture everything
+	var fullResponse domain.AIPlannerResponse
+	if err := json.Unmarshal(cleanData, &fullResponse); err != nil {
+		fmt.Printf("❌ [AI DEBUG] Full Plan Unmarshal Failed: %v\n", err)
+		// Try to recover just itinerary if possible, or fallback
 		return p.generateMockPlan(trip, nil), nil
 	}
 
-	// 2. Generate Logistics
-	plan, err := p.GenerateTransportAndStay(ctx, trip)
-	if err != nil {
-		// Jika logistik gagal, kita masih bisa return itinerary dengan dummy logistics
-		mockPlan := p.generateMockPlan(trip, nil)
-		mockPlan.Itinerary = itinerary
-		return mockPlan, nil
+	// Map to Domain TripPlan
+	plan := domain.TripPlan{
+		TripID:               trip.ID,
+		Itinerary:            fullResponse.Itinerary,
+		BudgetBreakdown:      fullResponse.BudgetBreakdown,
+		TransportOptions:     fullResponse.TransportOptions,
+		AccommodationOptions: fullResponse.AccommodationOptions,
+		DecisionNotes:        fullResponse.DecisionNotes,
+		ArrivalGuide:         fullResponse.ArrivalGuide,
+		PackingList:          fullResponse.PackingList,
+		MorningBriefing:      fullResponse.MorningBriefing,
+		Highlights:           fullResponse.Highlights,
+		Tagline:              fullResponse.Tagline,
+		Vibes:                fullResponse.Vibes,
+		CulinarySignature:    fullResponse.CulinarySignature,
+		HiddenGem:            fullResponse.HiddenGem,
+		HistorySnippet:       fullResponse.HistorySnippet,
 	}
 
-	plan.Itinerary = itinerary
-
-	// 3. Generate Packing List (Opsional, tidak menghentikan flow jika gagal)
-	packing, _ := p.GeneratePackingList(ctx, trip)
-	plan.PackingList = packing
+	// If parts are missing, we might want to fill them with dummy data or leave empty
+	// For now, return what we got.
 
 	return plan, nil
 }
@@ -338,6 +346,11 @@ func (p *AIPlanner) requestAI(ctx context.Context, sysKey string, data interface
 	// 4. Processing Response
 	rawContent := resp.Choices[0].Message.Content
 	cleanContent := cleanJSON([]byte(rawContent))
+
+	// Step 1: Log the Raw AI Response for Packing
+	if sysKey == "planner_packing_system" {
+		log.Printf("DEBUG [AI-PACKING]: Raw JSON Content: %s", string(cleanContent))
+	}
 
 	if err := json.Unmarshal(cleanContent, target); err != nil {
 		// Log content jika error syntax, biar mudah debug

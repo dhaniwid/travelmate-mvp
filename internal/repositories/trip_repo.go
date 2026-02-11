@@ -126,7 +126,51 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 		}
 
 		if err := json.Unmarshal(planDataRaw, &plan); err != nil {
-			log.Printf("⚠️ Warning: Failed to unmarshal plan_data for trip %s: %v. This might be due to schema changes or legacy data.", id, err)
+			log.Printf("⚠️ Warning: Failed to unmarshal plan_data for trip %s: %v. Attempting soft recovery...", id, err)
+
+			// RECOVERY MODE: Try to treat it as a generic map and salvage parts
+			var rawMap map[string]json.RawMessage
+			if errRaw := json.Unmarshal(planDataRaw, &rawMap); errRaw == nil {
+				// 1. Try to recover Itinerary
+				if itinRaw, ok := rawMap["itinerary"]; ok {
+					if errItin := json.Unmarshal(itinRaw, &plan.Itinerary); errItin != nil {
+						log.Printf("Full itinerary recovery failed: %v. Trying partial recovery...", errItin)
+						// Optional: Try to recover day by day if Itinerary is array
+						var itinDays []json.RawMessage
+						if errArr := json.Unmarshal(itinRaw, &itinDays); errArr == nil {
+							for _, dayRaw := range itinDays {
+								var day domain.ItineraryDay
+								if errDay := json.Unmarshal(dayRaw, &day); errDay == nil {
+									plan.Itinerary = append(plan.Itinerary, day)
+								}
+							}
+						}
+					}
+				}
+
+				// 2. Recover other components independently
+				if budgetRaw, ok := rawMap["budget_breakdown"]; ok {
+					_ = json.Unmarshal(budgetRaw, &plan.BudgetBreakdown) // Best effort
+				}
+
+				if transRaw, ok := rawMap["transport_options"]; ok {
+					_ = json.Unmarshal(transRaw, &plan.TransportOptions)
+				}
+
+				// Note: Field matches json tag in models.go
+				if accomRaw, ok := rawMap["strategic_accommodation"]; ok {
+					_ = json.Unmarshal(accomRaw, &plan.AccommodationOptions)
+				}
+
+				if notesRaw, ok := rawMap["decision_notes"]; ok {
+					_ = json.Unmarshal(notesRaw, &plan.DecisionNotes)
+				}
+
+				// Ensure at least basic structural integrity
+				log.Printf("♻️ Soft recovery completed for Trip %s. Itinerary days recovered: %d", id, len(plan.Itinerary))
+			} else {
+				log.Printf("❌ Critical: Raw JSON structure completely invalid for Trip %s: %v", id, errRaw)
+			}
 		}
 	} else {
 		// FALLBACK: Jika plan_data di tabel trips kosong, coba cari di tabel legacy trip_plans
@@ -180,6 +224,8 @@ func (r *TripRepository) GetAllTrips(ctx context.Context) ([]domain.Trip, error)
 }
 
 func (r *TripRepository) SaveTripPlan(ctx context.Context, trip domain.Trip, plan domain.TripPlan) error {
+	log.Printf("DEBUG: Arrival Guide Present? %v | Packing List: %d items", plan.ArrivalGuide != nil, len(plan.PackingList))
+
 	// 1. Convert struct Plan menjadi JSON string
 	planJson, err := json.Marshal(plan)
 	if err != nil {
@@ -191,17 +237,18 @@ func (r *TripRepository) SaveTripPlan(ctx context.Context, trip domain.Trip, pla
 	// maka plan_data-nya terupdate.
 	query := `
         INSERT INTO trips (
-            id, location_id, origin, destination, start_date, trip_days, style, budget, plan_data, created_at
+            id, user_id, location_id, origin, destination, start_date, trip_days, style, budget, plan_data, created_at
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP
         )
         ON CONFLICT (id) DO UPDATE SET 
             plan_data = EXCLUDED.plan_data,
-            location_id = EXCLUDED.location_id
+            location_id = EXCLUDED.location_id,
+            user_id = COALESCE(NULLIF(EXCLUDED.user_id, ''), trips.user_id)
     `
 
 	_, err = r.DB.ExecContext(ctx, query,
-		trip.ID, trip.LocationID, trip.Origin, trip.Destination,
+		trip.ID, trip.UserID, trip.LocationID, trip.Origin, trip.Destination,
 		trip.StartDate, trip.TripDays, trip.Style, trip.Budget, planJson)
 
 	return err

@@ -55,15 +55,12 @@ func (s *TripService) GenerateTripStream(ctx context.Context, trip domain.Trip, 
 
 // Helper 1: Menangani Surprise Me & Metadata Awal
 func (s *TripService) resolveDestination(_ context.Context, trip domain.Trip, eventChan chan string) (domain.Trip, error) {
-	meta := map[string]string{"trip_id": trip.ID}
-
 	if trip.Destination == "" {
 		trip.Destination = s.recommendDestination(trip.Style)
 		log.Printf("🎲 [SURPRISE ME] Selected: %s", trip.Destination)
-		meta["destination"] = trip.Destination
 	}
 
-	s.sendEvent(eventChan, "metadata", meta)
+	s.sendEvent(eventChan, "metadata", trip)
 	return trip, nil
 }
 
@@ -97,9 +94,9 @@ func (s *TripService) executeAIPlannerParallel(ctx context.Context, trip domain.
 
 	// Wadah hasil
 	var (
-		itiRes     []domain.ItineraryDay
+		itiRes     domain.ItineraryResponse
 		logRes     domain.TripPlan
-		packingRes []domain.PackingItem
+		packingRes []domain.PackingCategory
 	)
 
 	// --- TASK 1: ITINERARY ---
@@ -108,7 +105,7 @@ func (s *TripService) executeAIPlannerParallel(ctx context.Context, trip domain.
 			return s.Planner.GenerateOnlyItinerary(ctx, trip)
 		},
 		func(res interface{}) {
-			itiRes = res.([]domain.ItineraryDay) // Type Assertion
+			itiRes = res.(domain.ItineraryResponse) // Type Assertion
 		},
 	)
 
@@ -137,14 +134,22 @@ func (s *TripService) executeAIPlannerParallel(ctx context.Context, trip domain.
 	)
 
 	// --- TASK 3: PACKING LIST ---
-	//s.runAsyncTask(&wg, "TASK 3", eventChan, "packing_list",
-	//	func() (interface{}, error) {
-	//		return s.Planner.GeneratePackingList(ctx, trip)
-	//	},
-	//	func(res interface{}) {
-	//		packingRes = res.([]domain.PackingItem)
-	//	},
-	//)
+	s.runAsyncTask(&wg, "TASK 3", eventChan, "packing_list",
+		func() (interface{}, error) {
+			return s.Planner.GeneratePackingList(ctx, trip)
+		},
+		func(res interface{}) {
+			// Print the ACTUAL type causing the issue
+			log.Printf("DEBUG [TASK-3]: Received Type: %T", res)
+
+			if val, ok := res.([]domain.PackingCategory); ok {
+				log.Printf("DEBUG [TASK-3]: Type Assertion SUCCESS. Count: %d", len(val))
+				packingRes = val
+			} else {
+				log.Printf("DEBUG [TASK-3]: ❌ Type Assertion FAILED! Expected []PackingCategory, got %T", res)
+			}
+		},
+	)
 
 	// Tunggu semua selesai
 	wg.Wait()
@@ -152,7 +157,9 @@ func (s *TripService) executeAIPlannerParallel(ctx context.Context, trip domain.
 	// Merge Results
 	finalPlan := logRes
 	finalPlan.TripID = trip.ID
-	finalPlan.Itinerary = itiRes
+	finalPlan.Itinerary = itiRes.Itinerary
+	finalPlan.MorningBriefing = itiRes.MorningBriefing
+	finalPlan.Highlights = itiRes.Highlights
 	finalPlan.PackingList = packingRes
 
 	return finalPlan
@@ -223,7 +230,7 @@ func (s *TripService) GetActivityAlternatives(ctx context.Context, dest, activit
 }
 
 // GetPackingList mengambil data trip lalu meminta AI membuatkan daftar bawaan
-func (s *TripService) GetPackingList(ctx context.Context, tripID string) ([]domain.PackingItem, error) {
+func (s *TripService) GetPackingList(ctx context.Context, tripID string) ([]domain.PackingCategory, error) {
 	// 1. Ambil Data Trip (Kita butuh Destinasi, Durasi, dan Style)
 	trip, err := s.TripRepo.GetByID(ctx, tripID)
 	if err != nil {

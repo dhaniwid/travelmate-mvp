@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS system_prompts
     description   TEXT,
     version       INT       DEFAULT 1,
     is_active     BOOLEAN   DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

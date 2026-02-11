@@ -12,7 +12,7 @@ func NewTemplatePlanner() *TemplatePlanner {
 }
 
 // GenerateOnlyItinerary: Dummy Itinerary
-func (t *TemplatePlanner) GenerateOnlyItinerary(ctx context.Context, trip domain.Trip) ([]domain.ItineraryDay, error) {
+func (t *TemplatePlanner) GenerateOnlyItinerary(ctx context.Context, trip domain.Trip) (domain.ItineraryResponse, error) {
 	var itinerary []domain.ItineraryDay
 
 	for i := 1; i <= trip.TripDays; i++ {
@@ -33,7 +33,11 @@ func (t *TemplatePlanner) GenerateOnlyItinerary(ctx context.Context, trip domain
 		itinerary = append(itinerary, day)
 	}
 
-	return itinerary, nil
+	return domain.ItineraryResponse{
+		Itinerary:       itinerary,
+		MorningBriefing: "Ready for your adventure in " + trip.Destination + "! Enjoy the local culture.",
+		Highlights:      []domain.TripHighlight{},
+	}, nil
 }
 
 // GenerateTransportAndStay: Dummy Logistics (UPDATED STRUCT)
@@ -155,9 +159,9 @@ func (t *TemplatePlanner) GetDiscoveryInfo(ctx context.Context, city string) (*d
 }
 
 // GeneratePackingList: Dummy Packing List
-func (t *TemplatePlanner) GeneratePackingList(ctx context.Context, trip domain.Trip) ([]domain.PackingItem, error) {
+func (t *TemplatePlanner) GeneratePackingList(ctx context.Context, trip domain.Trip) ([]domain.PackingCategory, error) {
 	// Return data statis yang umum
-	return []domain.PackingItem{
+	return []domain.PackingCategory{
 		{
 			Category: "Essentials 📄",
 			Items: []string{
@@ -178,7 +182,7 @@ func (t *TemplatePlanner) GeneratePackingList(ctx context.Context, trip domain.T
 			},
 		},
 		{
-			Category: "Toiletries ,🛀",
+			Category: "Toiletries 🛀",
 			Items: []string{
 				"Toothbrush & Toothpaste",
 				"Shampoo & Body Wash (Travel size)",
@@ -215,12 +219,14 @@ func (t *TemplatePlanner) GeneratePlan(ctx context.Context, trip domain.Trip) (d
 		return domain.TripPlan{}, err
 	}
 
-	itinerary, err := t.GenerateOnlyItinerary(ctx, trip)
+	resp, err := t.GenerateOnlyItinerary(ctx, trip)
 	if err != nil {
 		return domain.TripPlan{}, err
 	}
 
-	plan.Itinerary = itinerary
+	plan.Itinerary = resp.Itinerary
+	plan.MorningBriefing = resp.MorningBriefing
+	plan.Highlights = resp.Highlights
 	plan.PackingList, _ = t.GeneratePackingList(ctx, trip)
 
 	return plan, nil
