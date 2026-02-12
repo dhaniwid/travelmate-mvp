@@ -66,7 +66,7 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
         SELECT 
             id, user_id, location_id, destination, origin, 
             start_date, trip_days, style, budget, budget_range, 
-            is_public, created_at, plan_data, status
+            is_public, created_at, plan_data, status, enrichment_status
         FROM trips
         WHERE id = $1
     `
@@ -77,6 +77,7 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 	var userID sql.NullString
 	var locationID sql.NullString
 	var budgetRange sql.NullString
+	var enrichmentStatus sql.NullString
 
 	err := r.DB.QueryRowContext(ctx, query, id).Scan(
 		&trip.ID,
@@ -93,6 +94,7 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 		&trip.CreatedAt,
 		&planDataRaw,
 		&trip.Status,
+		&enrichmentStatus,
 	)
 
 	if err == sql.ErrNoRows {
@@ -112,6 +114,9 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 
 	if budgetRange.Valid {
 		trip.BudgetRange = budgetRange.String
+	}
+	if enrichmentStatus.Valid {
+		trip.EnrichmentStatus = enrichmentStatus.String
 	}
 
 	var plan domain.TripPlan
@@ -205,7 +210,7 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 }
 
 func (r *TripRepository) GetAllTrips(ctx context.Context) ([]domain.Trip, error) {
-	query := `SELECT id, destination, start_date, trip_days, style, status FROM trips ORDER BY created_at DESC`
+	query := `SELECT id, destination, start_date, trip_days, style, status, enrichment_status FROM trips ORDER BY created_at DESC`
 	rows, err := r.DB.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
@@ -215,8 +220,12 @@ func (r *TripRepository) GetAllTrips(ctx context.Context) ([]domain.Trip, error)
 	var trips []domain.Trip
 	for rows.Next() {
 		var t domain.Trip
-		if err := rows.Scan(&t.ID, &t.Destination, &t.StartDate, &t.TripDays, &t.Style, &t.Status); err != nil {
+		var enrichmentStatus sql.NullString
+		if err := rows.Scan(&t.ID, &t.Destination, &t.StartDate, &t.TripDays, &t.Style, &t.Status, &enrichmentStatus); err != nil {
 			continue
+		}
+		if enrichmentStatus.Valid {
+			t.EnrichmentStatus = enrichmentStatus.String
 		}
 		trips = append(trips, t)
 	}
@@ -237,19 +246,20 @@ func (r *TripRepository) SaveTripPlan(ctx context.Context, trip domain.Trip, pla
 	// maka plan_data-nya terupdate.
 	query := `
         INSERT INTO trips (
-            id, user_id, location_id, origin, destination, start_date, trip_days, style, budget, plan_data, created_at
+            id, user_id, location_id, origin, destination, start_date, trip_days, style, budget, plan_data, enrichment_status, created_at
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP
         )
         ON CONFLICT (id) DO UPDATE SET 
             plan_data = EXCLUDED.plan_data,
             location_id = EXCLUDED.location_id,
+            enrichment_status = EXCLUDED.enrichment_status,
             user_id = COALESCE(NULLIF(EXCLUDED.user_id, ''), trips.user_id)
     `
 
 	_, err = r.DB.ExecContext(ctx, query,
 		trip.ID, trip.UserID, trip.LocationID, trip.Origin, trip.Destination,
-		trip.StartDate, trip.TripDays, trip.Style, trip.Budget, planJson)
+		trip.StartDate, trip.TripDays, trip.Style, trip.Budget, planJson, trip.EnrichmentStatus)
 
 	return err
 }
@@ -265,7 +275,7 @@ func (r *TripRepository) GetExistingPlanByCriteria(ctx context.Context, destinat
 			tp.decision_notes
 		FROM trip_plans tp
 		JOIN trips t ON tp.trip_id = t.id
-		WHERE t.destination ILIKE $1 
+		WHERE LOWER(t.destination) = LOWER($1)
 		  AND t.style = $2 
 		  AND t.trip_days = $3
 		ORDER BY t.created_at DESC
@@ -315,26 +325,28 @@ func (r *TripRepository) Create(ctx context.Context, trip *domain.Trip) error {
 		INSERT INTO trips (
 			id, user_id, location_id, destination, origin, 
 			start_date, trip_days, style, budget, budget_range, 
-			plan_data, created_at
+			plan_data, enrichment_status, created_at
 		) VALUES (
 			$1, $2, $3, $4, $5, 
 			$6, $7, $8, $9, $10, 
-			$11, NOW()
+			$11, $12, NOW()
 		)
 	`
+	log.Printf("DEBUG REPO CREATE: Trip %s EnrichmentStatus: '%s'", trip.ID, trip.EnrichmentStatus)
 
 	_, err = r.DB.ExecContext(ctx, query,
-		trip.ID,          // $1
-		trip.UserID,      // $2 (Ini ID dari Clerk)
-		trip.LocationID,  // $3
-		trip.Destination, // $4
-		trip.Origin,      // $5
-		trip.StartDate,   // $6
-		trip.TripDays,    // $7
-		trip.Style,       // $8
-		trip.Budget,      // $9
-		trip.BudgetRange, // $10
-		planJson,         // $11 (JSONB)
+		trip.ID,               // $1
+		trip.UserID,           // $2 (Ini ID dari Clerk)
+		trip.LocationID,       // $3
+		trip.Destination,      // $4
+		trip.Origin,           // $5
+		trip.StartDate,        // $6
+		trip.TripDays,         // $7
+		trip.Style,            // $8
+		trip.Budget,           // $9
+		trip.BudgetRange,      // $10
+		planJson,              // $11 (JSONB)
+		trip.EnrichmentStatus, // $12
 	)
 
 	if err != nil {
@@ -369,12 +381,13 @@ func (r *TripRepository) GetByID(ctx context.Context, id string) (*domain.Trip, 
         SELECT 
             id, user_id, location_id, destination, origin, 
             start_date, trip_days, style, budget, budget_range, 
-            is_public, created_at, status
+            is_public, created_at, status, enrichment_status
         FROM trips
         WHERE id = $1
     `
 
 	var trip domain.Trip
+	var enrichmentStatus sql.NullString
 	// Perhatikan: Tidak ada scan ke &planDataRaw
 	err := r.DB.QueryRowContext(ctx, query, id).Scan(
 		&trip.ID,
@@ -390,6 +403,7 @@ func (r *TripRepository) GetByID(ctx context.Context, id string) (*domain.Trip, 
 		&trip.IsPublic,
 		&trip.CreatedAt,
 		&trip.Status,
+		&enrichmentStatus,
 	)
 
 	if err == sql.ErrNoRows {
@@ -397,6 +411,10 @@ func (r *TripRepository) GetByID(ctx context.Context, id string) (*domain.Trip, 
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	if enrichmentStatus.Valid {
+		trip.EnrichmentStatus = enrichmentStatus.String
 	}
 
 	return &trip, nil
@@ -409,7 +427,7 @@ func (r *TripRepository) ListTripsByUser(ctx context.Context, userID string) ([]
         SELECT 
             id, user_id, location_id, destination, origin, 
             start_date, trip_days, style,  
-            is_public, created_at, status
+            is_public, created_at, status, enrichment_status
         FROM trips
         WHERE user_id = $1
         ORDER BY created_at DESC
@@ -426,11 +444,12 @@ func (r *TripRepository) ListTripsByUser(ctx context.Context, userID string) ([]
 		var t domain.Trip
 		// Helper vars untuk handle nullable jika perlu
 		var locID sql.NullString
+		var enrichmentStatus sql.NullString
 
 		err := rows.Scan(
 			&t.ID, &t.UserID, &locID, &t.Destination, &t.Origin,
 			&t.StartDate, &t.TripDays, &t.Style,
-			&t.IsPublic, &t.CreatedAt, &t.Status,
+			&t.IsPublic, &t.CreatedAt, &t.Status, &enrichmentStatus,
 		)
 		if err != nil {
 			return nil, err
@@ -438,6 +457,9 @@ func (r *TripRepository) ListTripsByUser(ctx context.Context, userID string) ([]
 
 		if locID.Valid {
 			t.LocationID = locID.String
+		}
+		if enrichmentStatus.Valid {
+			t.EnrichmentStatus = enrichmentStatus.String
 		}
 
 		trips = append(trips, t)
@@ -482,4 +504,15 @@ func (r *TripRepository) ClaimTrip(ctx context.Context, tripID string, userID st
 	}
 
 	return nil
+}
+
+// CountUserTrips counts trips created by a user
+func (r *TripRepository) CountUserTrips(ctx context.Context, userID string) (int, error) {
+	query := `SELECT COUNT(*) FROM trips WHERE user_id = $1`
+	var count int
+	err := r.DB.QueryRowContext(ctx, query, userID).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
 }

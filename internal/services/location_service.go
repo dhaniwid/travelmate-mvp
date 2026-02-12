@@ -107,7 +107,7 @@ func (s *LocationService) askAIForMetadata(ctx context.Context, name string) (*d
 
 	// 3. Call OpenAI
 	resp, err := s.AIClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: openai.GPT3Dot5Turbo,
+		Model: openai.GPT4oMini,
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: sysPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: userPrompt},

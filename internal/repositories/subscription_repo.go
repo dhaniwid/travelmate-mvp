@@ -37,15 +37,16 @@ func (r *SubscriptionRepository) GetQuota(ctx context.Context, userID, month str
 			INSERT INTO trip_quotas (user_id, month, trips_created, quota_limit)
 			VALUES ($1, $2, 0, 3)
 			ON CONFLICT (user_id, month) DO NOTHING
-			RETURNING trips_created, quota_limit
 		`
-		err = r.DB.QueryRowContext(ctx, initQuery, userID, month).Scan(&quota.TripsCreated, &quota.QuotaLimit)
+		_, err = r.DB.ExecContext(ctx, initQuery, userID, month)
 		if err != nil {
-			// If conflict happened and scan failed, try select again (race condition handle)
-			err = r.DB.QueryRowContext(ctx, query, userID, month).Scan(&quota.TripsCreated, &quota.QuotaLimit)
-			if err != nil {
-				return nil, fmt.Errorf("failed to initialize quota: %w", err)
-			}
+			return nil, fmt.Errorf("failed to insert quota: %w", err)
+		}
+
+		// Now fetch the record (whether we just created it or it already existed from conflict)
+		err = r.DB.QueryRowContext(ctx, query, userID, month).Scan(&quota.TripsCreated, &quota.QuotaLimit)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get quota after initialization: %w", err)
 		}
 	} else if err != nil {
 		return nil, err

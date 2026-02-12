@@ -14,21 +14,28 @@ type Coordinates struct {
 // ==========================================
 
 type Trip struct {
-	ID          string    `json:"id"`
-	UserID      string    `json:"user_id"` // ID dari Clerk
-	LocationID  string    `json:"location_id"`
-	Origin      string    `json:"origin"`
-	Destination string    `json:"destination"`
-	StartDate   string    `json:"start_date"` // YYYY-MM-DD
-	TripDays    int       `json:"trip_days"`
-	Style       string    `json:"style"`        // relaxed, fast, cultural
-	BudgetRange string    `json:"budget_range"` // e.g. "2.8-3.2jt"
-	Budget      int64     `json:"budget"`       // Changed to int64 for consistency
-	IsPublic    bool      `json:"is_public" db:"is_public"`
-	CreatedAt   time.Time `json:"created_at"`
-	PlanData    *TripPlan `json:"plan_data,omitempty" db:"plan_data"`
-	Status      string    `json:"status"` // "DRAFT", "UPCOMING", "COMPLETED"
+	ID               string    `json:"id"`
+	UserID           string    `json:"user_id"` // ID dari Clerk
+	LocationID       string    `json:"location_id"`
+	Origin           string    `json:"origin"`
+	Destination      string    `json:"destination"`
+	StartDate        string    `json:"start_date"` // YYYY-MM-DD
+	TripDays         int       `json:"trip_days"`
+	Style            string    `json:"style"`        // relaxed, fast, cultural
+	BudgetRange      string    `json:"budget_range"` // e.g. "2.8-3.2jt"
+	Budget           int64     `json:"budget"`       // Changed to int64 for consistency
+	IsPublic         bool      `json:"is_public" db:"is_public"`
+	CreatedAt        time.Time `json:"created_at"`
+	PlanData         *TripPlan `json:"plan_data,omitempty" db:"plan_data"`
+	Status           string    `json:"status"`            // "DRAFT", "UPCOMING", "COMPLETED"
+	EnrichmentStatus string    `json:"enrichment_status"` // "pending", "enriching", "completed"
 }
+
+const (
+	EnrichmentStatusPending   = "pending"
+	EnrichmentStatusEnriching = "enriching"
+	EnrichmentStatusCompleted = "completed"
+)
 
 type TripPlan struct {
 	TripID          string          `json:"trip_id"`
@@ -43,6 +50,7 @@ type TripPlan struct {
 	ArrivalGuide         *ArrivalGuide         `json:"arrival_guide"` // New Field
 	MorningBriefing      string                `json:"morning_briefing"`
 	Highlights           []TripHighlight       `json:"highlights"`
+	Logistics            *LogisticsData        `json:"logistics"` // NEW: M-124
 
 	// --- Discovery Features (Merged from DiscoveryView) ---
 	Tagline           string              `json:"tagline"`
@@ -52,15 +60,31 @@ type TripPlan struct {
 	HistorySnippet    string              `json:"history_snippet"`
 }
 
+type LogisticsData struct {
+	ArrivalGuide *ArrivalGuide `json:"arrival_guide"`
+	Essentials   *Essentials   `json:"essentials"`
+}
+
+type Essentials struct {
+	Currency string `json:"currency"`
+	Language string `json:"language"`
+	Voltage  string `json:"voltage"`
+}
+
 type ItineraryResponse struct {
-	Itinerary         []ItineraryDay      `json:"itinerary"`
-	MorningBriefing   string              `json:"morning_briefing"`
-	Highlights        []TripHighlight     `json:"highlights"`
+	Itinerary       []ItineraryDay  `json:"itinerary"`
+	MorningBriefing string          `json:"morning_briefing"`
+	Highlights      []TripHighlight `json:"highlights"`
+}
+
+type EditorialResponse struct {
 	Tagline           string              `json:"tagline"`
 	Vibes             []string            `json:"vibes"`
+	MorningBriefing   string              `json:"morning_briefing"`
+	HistorySnippet    string              `json:"history_snippet"`
+	Highlights        []TripHighlight     `json:"highlights"`
 	CulinarySignature []CulinarySignature `json:"culinary_signature"`
 	HiddenGem         *HiddenGem          `json:"hidden_gem"`
-	HistorySnippet    string              `json:"history_snippet"`
 }
 
 type TripHighlight struct {
@@ -107,6 +131,11 @@ type Activity struct {
 	Description string `json:"description"`
 	PlaceName   string `json:"place_name"`
 
+	// Enrichment Fields
+	PlaceID  string `json:"place_id,omitempty"`
+	Address  string `json:"address,omitempty"`
+	ImageURL string `json:"image_url,omitempty"`
+
 	Latitude    *float64     `json:"latitude"`
 	Longitude   *float64     `json:"longitude"`
 	Coordinates *Coordinates `json:"coordinates"`
@@ -132,6 +161,11 @@ type TouristAttraction struct {
 	Name            string    `json:"name"`
 	Category        string    `json:"category"`
 	Description     string    `json:"description"`
+	Latitude        float64   `json:"latitude"`
+	Longitude       float64   `json:"longitude"`
+	PlaceID         string    `json:"place_id"`
+	Photos          []string  `json:"photos"`
+	VisitDuration   string    `json:"visit_duration"`
 	PopularityScore int       `json:"popularity_score"`
 	LastUpdated     time.Time `json:"last_updated"`
 }
@@ -210,11 +244,36 @@ type AIPlannerResponse struct {
 	PackingList          []PackingCategory     `json:"packing_list"`  // New Field
 	MorningBriefing      string                `json:"morning_briefing"`
 	Highlights           []TripHighlight       `json:"highlights"`
+	Logistics            *LogisticsData        `json:"logistics"` // NEW: M-124
 	Tagline              string                `json:"tagline"`
 	Vibes                []string              `json:"vibes"`
 	CulinarySignature    []CulinarySignature   `json:"culinary_signature"`
 	HiddenGem            *HiddenGem            `json:"hidden_gem"`
 	HistorySnippet       string                `json:"history_snippet"`
+}
+
+type TripVibeResponse struct {
+	ItineraryUpdates []struct {
+		Day           int    `json:"day"`
+		ActivityIndex int    `json:"activity_index"`
+		Description   string `json:"description"`
+		VisitDuration string `json:"visit_duration"`
+		Category      string `json:"category"`
+	} `json:"itinerary_updates"`
+	MorningBriefings []struct {
+		Day             int    `json:"day"`
+		WeatherForecast string `json:"weather_forecast"`
+		OutfitTip       string `json:"outfit_tip"`
+		LocalVibe       string `json:"local_vibe"`
+	} `json:"morning_briefings"`
+	Highlights []TripHighlight `json:"highlights"`
+}
+
+type TripLogisticsResponse struct {
+	ArrivalGuide           ArrivalGuide          `json:"arrival_guide"`
+	BudgetBreakdown        BudgetBreakdown       `json:"budget_breakdown"`
+	PackingList            []PackingCategory     `json:"packing_list"`
+	StrategicAccommodation []AccommodationOption `json:"strategic_accommodation"`
 }
 
 type LocationMetadataResponse struct {

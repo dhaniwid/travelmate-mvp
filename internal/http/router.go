@@ -14,6 +14,8 @@ func SetupRouter(
 	fbHandler *handlers.FeedbackHandler,
 	subHandler *handlers.SubscriptionHandler,
 	webhookHandler *handlers.WebhookHandler,
+	discoveryHandler *handlers.DiscoveryHandler,
+	prefHandler *handlers.PreferencesHandler, // NEW
 ) *gin.Engine {
 
 	r := gin.New()
@@ -42,12 +44,15 @@ func SetupRouter(
 			// ============================================================
 
 			// 1. Trip Core
+			v1.POST("/trips", tripHandler.CreateTripAsync) // NEW: Progressive Generation (M-123)
 			v1.POST("/trips/stream", tripHandler.CreateTripStream)
 			v1.GET("/trips/:id", tripHandler.GetTrip)
 
 			// 2. Discovery & Inspiration (NEW ROUTE) 🚀
 			// Endpoint: GET /api/v1/discovery?city=Surabaya
 			v1.GET("/discovery", tripHandler.GetDiscovery)
+			v1.GET("/discovery/trending", discoveryHandler.GetTrending) // NEW
+			v1.GET("/discovery/explore", discoveryHandler.GetExplore)   // NEW
 
 			// 3. Utilities & Feedback
 			v1.POST("/alternatives", tripHandler.GetAlternatives)
@@ -65,10 +70,17 @@ func SetupRouter(
 				protected.GET("/trips", tripHandler.ListTrips)
 				protected.POST("/trips/save", tripHandler.SaveTrip)
 				protected.DELETE("/trips/:id", tripHandler.DeleteTrip)
+				protected.POST("/trips/:id/refine", tripHandler.RefineTrip)   // Miru AI Assistant 🧠
+				protected.GET("/trips/:id/export/pdf", tripHandler.ExportPDF) // Premium Export 📄
 
-				// 4. Subscription & Quota
+				// 4. Subscription
 				protected.GET("/user/subscription", subHandler.GetSubscription)
 				protected.GET("/user/quota", subHandler.GetQuota)
+				protected.POST("/user/subscription/checkout", subHandler.CreateCheckoutSession)
+
+				// 5. User Preferences (Travel DNA) 🧬
+				protected.GET("/user/preferences", prefHandler.GetPreferences)
+				protected.PUT("/user/preferences", prefHandler.UpdatePreferences)
 			}
 		}
 	}

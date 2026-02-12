@@ -12,11 +12,12 @@ import (
 )
 
 type TripHandler struct {
-	Service *services.TripService
+	Service    *services.TripService
+	SubService *services.SubscriptionService
 }
 
-func NewTripHandler(s *services.TripService) *TripHandler {
-	return &TripHandler{Service: s}
+func NewTripHandler(s *services.TripService, sub *services.SubscriptionService) *TripHandler {
+	return &TripHandler{Service: s, SubService: sub}
 }
 
 type AlternativesRequest struct {
@@ -67,6 +68,35 @@ func (h *TripHandler) CreateTripStream(c *gin.Context) {
 		case <-c.Request.Context().Done():
 			return false
 		}
+	})
+}
+
+// CreateTripAsync handles the initial fast generation and returns immediately (M-123)
+func (h *TripHandler) CreateTripAsync(c *gin.Context) {
+	var req domain.Trip
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, domain.APIError{
+			Code:    "validation_error",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	// Call Service
+	trip, err := h.Service.GenerateTripAsync(c.Request.Context(), req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, domain.APIError{
+			Code:    "generation_error",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	// Return Success (Immediate 200)
+	c.JSON(http.StatusOK, gin.H{
+		"trip_id":           trip.ID,
+		"enrichment_status": trip.EnrichmentStatus,
+		"message":           "Trip generation started. Poll /api/trips/:id for updates.",
 	})
 }
 
@@ -154,6 +184,32 @@ func (h *TripHandler) SaveTrip(c *gin.Context) {
 		ID:       req.ID,
 		UserID:   req.UserID,
 		PlanData: req.PlanData,
+	}
+
+	// 🛡️ SECURITY: CRITICAL QUOTA CHECK (Fix Bypass)
+	// Check if user has quota BEFORE saving
+	quota, err := h.SubService.GetUserQuota(c.Request.Context(), req.UserID, "")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, domain.APIError{Code: "internal_error", Message: "Quota check failed"})
+		return
+	}
+
+	tripCount, err := h.Service.CountUserTrips(c.Request.Context(), req.UserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, domain.APIError{Code: "internal_error", Message: "Failed to verify trip count"})
+		return
+	}
+
+	// Rule: If quota is restricted and limit reached
+	if !quota.IsUnlimited && tripCount >= quota.QuotaLimit {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error":        "quota_exceeded",
+			"message":      fmt.Sprintf("You have reached your free account limit (%d trips). Upgrade to Pro for unlimited trips!", quota.QuotaLimit),
+			"current_tier": "FREE",
+			"trip_count":   tripCount,
+			"limit":        quota.QuotaLimit,
+		})
+		return
 	}
 
 	// Panggil Service
@@ -263,4 +319,70 @@ func (h *TripHandler) GetDiscovery(c *gin.Context) {
 		"success": true,
 		"data":    data,
 	})
+}
+
+// Sub-struct for Refinement
+type RefineTripRequest struct {
+	Instruction string `json:"instruction" binding:"required"`
+}
+
+// RefineTrip Request Adjustment via Chat
+func (h *TripHandler) RefineTrip(c *gin.Context) {
+	tripID := c.Param("id")
+	var req RefineTripRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, domain.APIError{Code: "bad_request", Message: err.Error()})
+		return
+	}
+
+	updatedPlan, err := h.Service.RefineTrip(c.Request.Context(), tripID, req.Instruction)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, domain.APIError{Code: "Refinement Failed", Message: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": updatedPlan})
+}
+
+// ExportPDF handles GET /trips/:id/export/pdf
+func (h *TripHandler) ExportPDF(c *gin.Context) {
+	tripID := c.Param("id")
+
+	// 0. CHECK PREMIUM STATUS (PRO ONLY)
+	userID := c.GetString("user_id") // From Auth Middleware
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, domain.APIError{Code: "unauthorized", Message: "User not authenticated"})
+		return
+	}
+
+	user, err := h.SubService.GetUserSubscription(c.Request.Context(), userID, "", "")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, domain.APIError{Code: "internal_error", Message: "Failed to verify subscription"})
+		return
+	}
+
+	if user.SubscriptionTier != "PRO" {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error":        "premium_feature",
+			"message":      "PDF Export is a specific feature for Miru PRO members. Upgrade to unlock magazine-style exports!",
+			"current_tier": user.SubscriptionTier,
+		})
+		return
+	}
+
+	// 1. Call Service
+	pdfBytes, filename, err := h.Service.ExportTripToPDF(c.Request.Context(), tripID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, domain.APIError{Code: "pdf_generation_failed", Message: err.Error()})
+		return
+	}
+
+	// 2. Set Headers for Download
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+	c.Header("Content-Type", "application/pdf")
+	c.Header("Content-Length", fmt.Sprintf("%d", len(pdfBytes)))
+
+	// 3. Write Data
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }

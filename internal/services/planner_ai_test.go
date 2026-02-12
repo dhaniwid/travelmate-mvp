@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 	"travelmate/internal/domain"
+	"travelmate/internal/repositories"
 	"travelmate/internal/services"
 
 	"github.com/joho/godotenv"
@@ -41,7 +42,8 @@ func BenchmarkAIPlanner(b *testing.B) {
 
 	// 3. Inisialisasi Services
 	promptSvc := services.NewPromptService(db)
-	planner := services.NewAIPlanner(apiKey, promptSvc)
+	prefRepo := repositories.NewPreferencesRepository(db)
+	planner := services.NewAIPlanner(apiKey, promptSvc, prefRepo)
 
 	// Mock data untuk testing
 	mockTrip := domain.Trip{

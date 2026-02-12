@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 	"travelmate/internal/domain"
+	"travelmate/internal/repositories"
 
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -24,11 +25,12 @@ const (
 type AIPlanner struct {
 	client    *openai.Client
 	promptSvc *PromptService
+	prefRepo  *repositories.PreferencesRepository // Concrete type
 }
 
-func NewAIPlanner(apiKey string, promptSvc *PromptService) *AIPlanner {
+func NewAIPlanner(apiKey string, promptSvc *PromptService, prefRepo *repositories.PreferencesRepository) *AIPlanner {
 	client := openai.NewClient(apiKey)
-	return &AIPlanner{client: client, promptSvc: promptSvc}
+	return &AIPlanner{client: client, promptSvc: promptSvc, prefRepo: prefRepo}
 }
 
 // ============================================================================
@@ -71,8 +73,14 @@ func (p *AIPlanner) GenerateOnlyItinerary(ctx context.Context, trip domain.Trip)
 	startTime := time.Now()
 	log.Printf("⏱️ [PERF] Starting Itinerary AI Request for %s", trip.Destination)
 
-	if err := p.requestAI(ctx, "planner_itinerary_system", trip, &rawResponse); err != nil {
-		fmt.Printf("❌ [AI DEBUG] Request AI Failed: %v\n", err)
+	// Data for Template
+	// FIX: Template expects {{.Trip.TripDays}}, so we must wrap it.
+	inputData := map[string]interface{}{
+		"Trip": trip,
+	}
+
+	if err := p.requestAI(ctx, "planner_itinerary_system", inputData, &rawResponse); err != nil {
+		log.Printf("❌ [AI ERROR] Request AI Failed: %v", err)
 		return domain.ItineraryResponse{}, err
 	}
 
@@ -96,6 +104,32 @@ func (p *AIPlanner) GenerateOnlyItinerary(ctx context.Context, trip domain.Trip)
 	return resp, nil
 }
 
+// GenerateEditorial Fitur "Magazine Editor" (Phase 2 Parallel)
+func (p *AIPlanner) GenerateEditorial(ctx context.Context, trip domain.Trip) (domain.EditorialResponse, error) {
+	var rawResponse json.RawMessage
+
+	// Performance monitoring
+	startTime := time.Now()
+	log.Printf("⏱️ [PERF] Starting Editorial AI Request for %s", trip.Destination)
+
+	if err := p.requestAI(ctx, "planner_editorial_system", trip, &rawResponse); err != nil {
+		log.Printf("❌ [AI ERROR] Editorial AI Failed: %v", err)
+		return domain.EditorialResponse{}, err
+	}
+
+	elapsed := time.Since(startTime)
+	log.Printf("⏱️ [PERF] Editorial AI Request completed in: %v", elapsed)
+
+	cleanData := cleanJSON(rawResponse)
+	var resp domain.EditorialResponse
+	if err := json.Unmarshal(cleanData, &resp); err != nil {
+		fmt.Printf("⚠️ [AI DEBUG] Editorial Unmarshal failed: %v\n", err)
+		return domain.EditorialResponse{}, err
+	}
+
+	return resp, nil
+}
+
 // GenerateTransportAndStay Fitur "Expert Logistics"
 func (p *AIPlanner) GenerateTransportAndStay(ctx context.Context, trip domain.Trip) (domain.TripPlan, error) {
 	var logisticsResp struct {
@@ -106,7 +140,7 @@ func (p *AIPlanner) GenerateTransportAndStay(ctx context.Context, trip domain.Tr
 
 	// 1. Request ke AI - Use specialized logistics prompt
 	if err := p.requestAI(ctx, "planner_logistics_system", trip, &logisticsResp); err != nil {
-		fmt.Printf("❌ Logistics AI Error: %v\n", err)
+		log.Printf("❌ Logistics AI Error: %v", err)
 		return domain.TripPlan{}, err
 	}
 
@@ -153,7 +187,6 @@ func (p *AIPlanner) GeneratePackingList(ctx context.Context, trip domain.Trip) (
 		return nil, err
 	}
 
-	log.Printf("DEBUG [AI-PACKING]: Parsed Struct Count: %d categories", len(result.PackingList))
 	return result.PackingList, nil
 }
 
@@ -162,8 +195,21 @@ func (p *AIPlanner) GeneratePlan(ctx context.Context, trip domain.Trip) (domain.
 	// NEW: Monolithic Prompt Approach (One-Shot Generation)
 	// We use "planner_itinerary_system" which now returns EVERYTHING.
 
+	// 1. Fetch User Preferences (Travel DNA)
+	prefs, err := p.prefRepo.GetPreferences(ctx, trip.UserID)
+	if err != nil {
+		log.Printf("⚠️ Failed to fetch preferences for user %s: %v", trip.UserID, err)
+		// Continue without preferences
+	}
+
+	// 2. Prepare Context (Trip + DNA)
+	tripContext := map[string]interface{}{
+		"Trip":        trip,
+		"Preferences": prefs, // Can be nil, which is fine
+	}
+
 	var rawResponse json.RawMessage
-	if err := p.requestAI(ctx, "planner_itinerary_system", trip, &rawResponse); err != nil {
+	if err := p.requestAI(ctx, "planner_itinerary_system", tripContext, &rawResponse); err != nil {
 		fmt.Printf("❌ [AI DEBUG] Request AI Failed: %v\n", err)
 		return p.generateMockPlan(trip, nil), nil // Fallback
 	}
@@ -201,6 +247,28 @@ func (p *AIPlanner) GeneratePlan(ctx context.Context, trip domain.Trip) (domain.
 	// For now, return what we got.
 
 	return plan, nil
+}
+
+// RefineItinerary Modifies an existing itinerary based on user instruction (Chat Agent)
+func (p *AIPlanner) RefineItinerary(ctx context.Context, currentItinerary []domain.ItineraryDay, instruction string) ([]domain.ItineraryDay, error) {
+	// 1. Prepare Context Data
+	inputData := map[string]interface{}{
+		"CurrentItinerary": currentItinerary,
+		"Instruction":      instruction,
+	}
+
+	// 2. Struct to capture response
+	var response struct {
+		Itinerary []domain.ItineraryDay `json:"itinerary"`
+	}
+
+	// 3. Request AI
+	if err := p.requestAI(ctx, "planner_refinement_system", inputData, &response); err != nil {
+		fmt.Printf("❌ Refinement AI Failed: %v\n", err)
+		return nil, err
+	}
+
+	return response.Itinerary, nil
 }
 
 // ============================================================================
@@ -325,9 +393,8 @@ func (p *AIPlanner) requestAI(ctx context.Context, sysKey string, data interface
 	}
 	userContent := fmt.Sprintf("Here is the trip context data:\n%s", string(userDataBytes))
 
-	// 🔍 DEBUG LOG (Optional)
-	fmt.Printf("🤖 [System]: %s\n", sysKey)
-	fmt.Printf("👤 [User Context]: %s\n", userContent)
+	// 🔍 PERFORMANCE DEBUG
+	// log.Printf("📊 [AI-PAYLOAD] System: %s | UserContent Size: %d bytes", sysKey, len(userContent))
 
 	// 3. Call OpenAI (Multi-role Messages)
 	resp, err := p.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
@@ -355,10 +422,8 @@ func (p *AIPlanner) requestAI(ctx context.Context, sysKey string, data interface
 	rawContent := resp.Choices[0].Message.Content
 	cleanContent := cleanJSON([]byte(rawContent))
 
-	// Step 1: Log the Raw AI Response for Packing
-	if sysKey == "planner_packing_system" {
-		log.Printf("DEBUG [AI-PACKING]: Raw JSON Content: %s", string(cleanContent))
-	}
+	// Step 1: Log the Raw AI Response for Debugging
+	// log.Printf("📥 [AI-RESPONSE] System: %s | Length: %d chars", sysKey, len(cleanContent))
 
 	if err := json.Unmarshal(cleanContent, target); err != nil {
 		// Log content jika error syntax, biar mudah debug
@@ -385,4 +450,185 @@ func cleanJSON(raw []byte) []byte {
 	s = strings.TrimSuffix(s, "```")
 
 	return []byte(strings.TrimSpace(s))
+}
+
+// GenerateUltraConciseItinerary creates the initial skeleton (Phase 1)
+func (p *AIPlanner) GenerateUltraConciseItinerary(ctx context.Context, trip domain.Trip) (domain.ItineraryResponse, error) {
+	// Performance monitoring
+	startTime := time.Now()
+	log.Printf("⏱️ [PERF] Starting Concise Itinerary AI Request (Phase 1) for %s...", trip.Destination)
+
+	var rawResponse json.RawMessage
+
+	// Data for Template
+	inputData := map[string]interface{}{
+		"Trip": trip,
+	}
+
+	// Use the new "Ultra-Concise" prompt
+	if err := p.requestAI(ctx, "planner_itinerary_concise", inputData, &rawResponse); err != nil {
+		log.Printf("❌ [AI ERROR] Concise Itinerary Failed: %v", err)
+		return domain.ItineraryResponse{}, err
+	}
+
+	elapsed := time.Since(startTime)
+	log.Printf("⏱️ [PERF] Concise Itinerary AI Request completed in: %v", elapsed)
+
+	cleanData := cleanJSON(rawResponse)
+	var resp domain.ItineraryResponse
+	if err := json.Unmarshal(cleanData, &resp); err != nil {
+		return domain.ItineraryResponse{}, fmt.Errorf("concise parse error: %w", err)
+	}
+
+	return resp, nil
+}
+
+// GenerateFullItineraryPass creates the complete trip plan in one pass
+func (p *AIPlanner) GenerateFullItineraryPass(ctx context.Context, trip domain.Trip) (domain.AIPlannerResponse, error) {
+	startTime := time.Now()
+	log.Printf("⏱️ [PERF] Starting Heavy Full-Pass Itinerary AI Request for %s...", trip.Destination)
+
+	var rawResponse json.RawMessage
+
+	inputData := map[string]interface{}{
+		"Trip":        trip,
+		"TripID":      trip.ID,
+		"TripDays":    trip.TripDays,
+		"Destination": trip.Destination,
+		"Pace":        trip.Style, // Assuming Style as Pace for now, or use trip.Preferences
+		"Travelers":   "Solo",     // Defaults
+		"Budget":      "Medium",
+	}
+
+	if err := p.requestAI(ctx, "planner_itinerary_concise", inputData, &rawResponse); err != nil {
+		log.Printf("❌ [AI ERROR] Full-Pass Itinerary Failed: %v", err)
+		return domain.AIPlannerResponse{}, err
+	}
+
+	elapsed := time.Since(startTime)
+	log.Printf("⏱️ [PERF] Full-Pass Itinerary AI Request completed in: %v", elapsed)
+
+	cleanData := cleanJSON(rawResponse)
+	var resp domain.AIPlannerResponse
+	if err := json.Unmarshal(cleanData, &resp); err != nil {
+		fmt.Printf("❌ JSON Unmarshal Error in Full-Pass: %v\nContent: %s\n", err, string(cleanData))
+		return domain.AIPlannerResponse{}, fmt.Errorf("full-pass parse error: %w", err)
+	}
+
+	return resp, nil
+}
+
+// GenerateEnrichmentDetails fleshes out the skeleton (Phase 2)
+func (p *AIPlanner) GenerateEnrichmentDetails(ctx context.Context, skeleton domain.TripPlan) (domain.TripPlan, error) {
+	// Performance monitoring
+	startTime := time.Now()
+	log.Printf("⏱️ [PERF] Starting Enrichment AI Request (Phase 2)...")
+
+	var rawResponse json.RawMessage
+
+	// Serialize skeleton for prompt context
+	skeletonBytes, _ := json.Marshal(skeleton)
+	inputData := map[string]interface{}{
+		"SkeletonJSON": string(skeletonBytes),
+	}
+
+	if err := p.requestAI(ctx, "planner_enrichment", inputData, &rawResponse); err != nil {
+		log.Printf("❌ [AI ERROR] Enrichment Failed: %v", err)
+		return domain.TripPlan{}, err
+	}
+
+	elapsed := time.Since(startTime)
+	log.Printf("⏱️ [PERF] Enrichment AI Request completed in: %v", elapsed)
+
+	cleanData := cleanJSON(rawResponse)
+	var resp domain.TripPlan
+	// Fix: The prompt returns "TripPlan" structure directly (or logically should)
+	// We unmarshal into TripPlan
+	if err := json.Unmarshal(cleanData, &resp); err != nil {
+		// Fallback: maybe it wrapped it in { "plan": ... } ?
+		// For now assume prompt follows instruction to return TripPlan structure
+		return domain.TripPlan{}, fmt.Errorf("enrichment parse error: %w", err)
+	}
+
+	return resp, nil
+}
+
+// GenerateTripCore (Stage 1): High-speed core itinerary & coordinates
+func (p *AIPlanner) GenerateTripCore(ctx context.Context, trip domain.Trip) (domain.ItineraryResponse, error) {
+	startTime := time.Now()
+	log.Printf("⏱️ [PERF] Starting TRIP_CORE AI Request (Stage 1) for %s...", trip.Destination)
+
+	var rawResponse json.RawMessage
+	inputData := map[string]interface{}{
+		"Destination": trip.Destination,
+		"TripDays":    trip.TripDays,
+		"Pace":        trip.Style,
+		"Travelers":   "Solo",
+		"Budget":      "Medium",
+		"TripID":      trip.ID,
+	}
+
+	if err := p.requestAI(ctx, "TRIP_CORE", inputData, &rawResponse); err != nil {
+		return domain.ItineraryResponse{}, err
+	}
+
+	log.Printf("⏱️ [PERF] TRIP_CORE Request completed in: %v", time.Since(startTime))
+
+	cleanData := cleanJSON(rawResponse)
+	var resp domain.ItineraryResponse
+	if err := json.Unmarshal(cleanData, &resp); err != nil {
+		return domain.ItineraryResponse{}, fmt.Errorf("core parse error: %w", err)
+	}
+
+	return resp, nil
+}
+
+// EnrichTripVibe (Stage 2): Adds descriptions, briefings, and highlights
+func (p *AIPlanner) EnrichTripVibe(ctx context.Context, stage1JSON string) (domain.TripVibeResponse, error) {
+	startTime := time.Now()
+	log.Printf("⏱️ [PERF] Starting TRIP_ENRICHMENT AI Request (Stage 2)...")
+
+	var rawResponse json.RawMessage
+	inputData := map[string]interface{}{
+		"Stage1JSON": stage1JSON,
+	}
+
+	if err := p.requestAI(ctx, "TRIP_ENRICHMENT", inputData, &rawResponse); err != nil {
+		return domain.TripVibeResponse{}, err
+	}
+
+	log.Printf("⏱️ [PERF] TRIP_ENRICHMENT Request completed in: %v", time.Since(startTime))
+
+	cleanData := cleanJSON(rawResponse)
+	var resp domain.TripVibeResponse
+	if err := json.Unmarshal(cleanData, &resp); err != nil {
+		return domain.TripVibeResponse{}, fmt.Errorf("vibe parse error: %w", err)
+	}
+
+	return resp, nil
+}
+
+// GenerateTripLogistics (Stage 3): Strategic details (Visa, Transport, Accommo, Budget)
+func (p *AIPlanner) GenerateTripLogistics(ctx context.Context, trip domain.Trip) (domain.TripLogisticsResponse, error) {
+	startTime := time.Now()
+	log.Printf("⏱️ [PERF] Starting TRIP_LOGISTICS AI Request (Stage 3) for %s...", trip.Destination)
+
+	var rawResponse json.RawMessage
+	inputData := map[string]interface{}{
+		"Destination": trip.Destination,
+	}
+
+	if err := p.requestAI(ctx, "TRIP_LOGISTICS", inputData, &rawResponse); err != nil {
+		return domain.TripLogisticsResponse{}, err
+	}
+
+	log.Printf("⏱️ [PERF] TRIP_LOGISTICS Request completed in: %v", time.Since(startTime))
+
+	cleanData := cleanJSON(rawResponse)
+	var resp domain.TripLogisticsResponse
+	if err := json.Unmarshal(cleanData, &resp); err != nil {
+		return domain.TripLogisticsResponse{}, fmt.Errorf("logistics parse error: %w", err)
+	}
+
+	return resp, nil
 }

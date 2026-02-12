@@ -23,6 +23,8 @@ type TripService struct {
 	TransportServ  *TransportService
 	LocationServ   *LocationService
 	ImageSvc       *ImageService
+	PDFSvc         *PDFService
+	EnrichmentSvc  *EnrichmentService
 }
 
 func NewTripService(
@@ -37,6 +39,8 @@ func NewTripService(
 	locS *LocationService,
 	transportS *TransportService,
 	imageSvc *ImageService,
+	pdfSvc *PDFService,
+	enrichSvc *EnrichmentService,
 ) *TripService {
 	return &TripService{
 		TripRepo:       tr,
@@ -50,6 +54,8 @@ func NewTripService(
 		TransportServ:  transportS,
 		LocationServ:   locS,
 		ImageSvc:       imageSvc,
+		PDFSvc:         pdfSvc,
+		EnrichmentSvc:  enrichSvc,
 	}
 }
 
@@ -92,6 +98,10 @@ func (s *TripService) DeleteUserTrip(ctx context.Context, tripID string, userID 
 
 func (s *TripService) GetUserTrips(ctx context.Context, userID string) ([]domain.Trip, error) {
 	return s.TripRepo.ListTripsByUser(ctx, userID)
+}
+
+func (s *TripService) CountUserTrips(ctx context.Context, userID string) (int, error) {
+	return s.TripRepo.CountUserTrips(ctx, userID)
 }
 
 func (s *TripService) GetDestinationDiscovery(ctx context.Context, city string) (*domain.DiscoveryResponse, error) {
@@ -162,4 +172,56 @@ func (s *TripService) GetDestinationDiscovery(ctx context.Context, city string) 
 	}(resp)
 
 	return resp, nil
+}
+
+// RefineTrip (Chat Agent Feature)
+func (s *TripService) RefineTrip(ctx context.Context, tripID string, instructions string) (*domain.TripPlan, error) {
+	// 1. Get Existing Trip & Plan
+	tripAndPlan, err := s.TripRepo.GetTripWithPlan(ctx, tripID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get trip: %w", err)
+	}
+	if tripAndPlan == nil {
+		return nil, fmt.Errorf("trip not found")
+	}
+
+	// 2. Call Planner Engine (AI Agent)
+	newItinerary, err := s.Planner.RefineItinerary(ctx, tripAndPlan.Plan.Itinerary, instructions)
+	if err != nil {
+		return nil, fmt.Errorf("planner refinement failed: %w", err)
+	}
+
+	// 3. Update Plan Object
+	tripAndPlan.Plan.Itinerary = newItinerary
+
+	// 4. Save Updates to Database
+	// We use SaveTripPlan (Upsert Plan Data)
+	if err := s.TripRepo.SaveTripPlan(ctx, tripAndPlan.Trip, tripAndPlan.Plan); err != nil {
+		return nil, fmt.Errorf("failed to save refined plan: %w", err)
+	}
+
+	return &tripAndPlan.Plan, nil
+}
+
+// ExportTripToPDF Generates a PDF file for the trip
+func (s *TripService) ExportTripToPDF(ctx context.Context, tripID string) ([]byte, string, error) {
+	// 1. Get Trip Data
+	tripAndPlan, err := s.TripRepo.GetTripWithPlan(ctx, tripID)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to fetch trip: %w", err)
+	}
+	if tripAndPlan == nil {
+		return nil, "", fmt.Errorf("trip not found")
+	}
+
+	// 2. Generate PDF
+	pdfBytes, err := s.PDFSvc.GenerateTripPDF(tripAndPlan.Trip, tripAndPlan.Plan)
+	if err != nil {
+		return nil, "", fmt.Errorf("pdf generation failed: %w", err)
+	}
+
+	// 3. Create Filename
+	filename := fmt.Sprintf("Miru_Itinerary_%s.pdf", strings.ReplaceAll(tripAndPlan.Trip.Destination, " ", "_"))
+
+	return pdfBytes, filename, nil
 }

@@ -56,3 +56,43 @@ func (h *SubscriptionHandler) GetQuota(c *gin.Context) {
 
 	c.JSON(http.StatusOK, quota)
 }
+
+// CreateCheckoutSession handles the creation of a Stripe Checkout Session
+func (h *SubscriptionHandler) CreateCheckoutSession(c *gin.Context) {
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: Missing user_id"})
+		return
+	}
+	email := c.GetString("email")
+
+	// Get Price ID from request body or use default for PRO
+	type Request struct {
+		PriceID string `json:"price_id"`
+	}
+	var req Request
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// If no body, use default PRO price ID from env or constant
+		// For now, let's require it or use a hardcoded one for MVP
+		// req.PriceID = "price_H5ggYJDqBoJLm" // Example
+	}
+
+	// TODO: Get PriceID from config/env based on Tier?
+	// For MVP, if PriceID is empty, assume Monthly PRO
+	priceID := req.PriceID
+	if priceID == "" {
+		// FALLBACK: Use a hardcoded test price ID or get from config
+		// This should ideally be in config
+		priceID = "price_1QorB0P098234098" // REPLACE WITH REAL STRIPE PRICE ID
+		// c.JSON(http.StatusBadRequest, gin.H{"error": "price_id is required"})
+		// return
+	}
+
+	url, err := h.Service.CreateCheckoutSession(userID, email, priceID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create checkout session: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"url": url})
+}

@@ -21,8 +21,8 @@ func NewClient(secretKey, webhookSecret string) *Client {
 		SecretKey:     secretKey,
 		WebhookSecret: webhookSecret,
 		// TODO: Move URLs to config
-		SuccessURL: "http://localhost:3000/dashboard?subscription_success=true",
-		CancelURL:  "http://localhost:3000/pricing?canceled=true",
+		SuccessURL: "http://localhost:3000/pricing/success",
+		CancelURL:  "http://localhost:3000/pricing/cancel",
 	}
 }
 

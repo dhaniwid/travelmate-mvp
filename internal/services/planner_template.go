@@ -231,3 +231,90 @@ func (t *TemplatePlanner) GeneratePlan(ctx context.Context, trip domain.Trip) (d
 
 	return plan, nil
 }
+
+// GenerateEditorial: Dummy Editorial Content
+func (t *TemplatePlanner) GenerateEditorial(ctx context.Context, trip domain.Trip) (domain.EditorialResponse, error) {
+	return domain.EditorialResponse{
+		Tagline:         "The City of Flowers and Fire (Template)",
+		Vibes:           []string{"Creative", "Culinary", "Cool Weather"},
+		MorningBriefing: "Ready for your adventure in " + trip.Destination + "! Enjoy the local culture.",
+		HistorySnippet:  "This city hosted a famous conference in 1955.",
+		Highlights: []domain.TripHighlight{
+			{Title: "Template Crater", Type: "Nature", Hook: "Active volcano accessible by car."},
+			{Title: "Template Street", Type: "Urban", Hook: "Colonial architecture walk."},
+		},
+		CulinarySignature: []domain.CulinarySignature{
+			{Name: "Template Noodle", Description: "Spicy noodles.", Tip: "Level 5 is deadly."},
+		},
+		HiddenGem: &domain.HiddenGem{
+			Name: "Secret Forest", Description: "Pine forest hidden in the north.",
+		},
+	}, nil
+}
+
+// RefineItinerary: Template implementation (returns unchanged itinerary)
+func (t *TemplatePlanner) RefineItinerary(ctx context.Context, currentItinerary []domain.ItineraryDay, instruction string) ([]domain.ItineraryDay, error) {
+	// Template mode doesn't support refinement, return as-is
+	return currentItinerary, nil
+}
+
+// GenerateUltraConciseItinerary (Stub)
+func (t *TemplatePlanner) GenerateUltraConciseItinerary(ctx context.Context, trip domain.Trip) (domain.ItineraryResponse, error) {
+	// Re-use logic from GenerateOnlyItinerary
+	return t.GenerateOnlyItinerary(ctx, trip)
+}
+
+// GenerateEnrichmentDetails (Stub)
+func (t *TemplatePlanner) GenerateEnrichmentDetails(ctx context.Context, skeleton domain.TripPlan) (domain.TripPlan, error) {
+	// Just return the skeleton combined with dummy logistics
+	// In real template mode, we'd probably just return the full template plan immediately
+	// For now, let's just return what we have plus some dummy data to simulate enrichment
+	return t.GenerateTransportAndStay(ctx, domain.Trip{ID: skeleton.TripID})
+}
+
+// GenerateFullItineraryPass (Stub)
+func (t *TemplatePlanner) GenerateFullItineraryPass(ctx context.Context, trip domain.Trip) (domain.AIPlannerResponse, error) {
+	// Re-use logic from GeneratePlan but map to AIPlannerResponse
+	plan, _ := t.GeneratePlan(ctx, trip)
+	return domain.AIPlannerResponse{
+		Itinerary:            plan.Itinerary,
+		BudgetBreakdown:      plan.BudgetBreakdown,
+		TransportOptions:     plan.TransportOptions,
+		AccommodationOptions: plan.AccommodationOptions,
+		PackingList:          plan.PackingList,
+		MorningBriefing:      plan.MorningBriefing,
+		Highlights:           plan.Highlights,
+	}, nil
+}
+
+// GenerateTripCore (Stage 1 Stub)
+func (t *TemplatePlanner) GenerateTripCore(ctx context.Context, trip domain.Trip) (domain.ItineraryResponse, error) {
+	return t.GenerateOnlyItinerary(ctx, trip)
+}
+
+// EnrichTripVibe (Stage 2 Stub)
+func (t *TemplatePlanner) EnrichTripVibe(ctx context.Context, stage1JSON string) (domain.TripVibeResponse, error) {
+	return domain.TripVibeResponse{
+		ItineraryUpdates: []struct {
+			Day           int    `json:"day"`
+			ActivityIndex int    `json:"activity_index"`
+			Description   string `json:"description"`
+			VisitDuration string `json:"visit_duration"`
+			Category      string `json:"category"`
+		}{},
+		Highlights: []domain.TripHighlight{
+			{Title: "Template Highlight", Type: "Sightseeing", Hook: "Must see."},
+		},
+	}, nil
+}
+
+// GenerateTripLogistics (Stage 3 Stub)
+func (t *TemplatePlanner) GenerateTripLogistics(ctx context.Context, trip domain.Trip) (domain.TripLogisticsResponse, error) {
+	plan, _ := t.GenerateTransportAndStay(ctx, trip)
+	return domain.TripLogisticsResponse{
+		ArrivalGuide:           domain.ArrivalGuide{},
+		BudgetBreakdown:        plan.BudgetBreakdown,
+		PackingList:            plan.PackingList,
+		StrategicAccommodation: plan.AccommodationOptions,
+	}, nil
+}

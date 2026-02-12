@@ -20,16 +20,16 @@ func NewDiscoveryRepo(db *sql.DB) *DiscoveryRepository {
 
 func (r *DiscoveryRepository) GetDestinationByCity(ctx context.Context, city string) (*domain.DestinationMetadata, error) {
 	query := `
-        SELECT id, city_name, description, popularity_score, discovery_data 
+        SELECT id, name, description, popularity_score, discovery_data 
         FROM destinations 
-        WHERE city_name = $1
+        WHERE name = $1
     `
 	var dest domain.DestinationMetadata
 
 	// TAMBAHKAN &dest.DiscoveryData di SCAN
 	err := r.DB.QueryRowContext(ctx, query, city).Scan(
 		&dest.ID,
-		&dest.CityName,
+		&dest.CityName, // Maps to 'name' in DB now
 		&dest.Description,
 		&dest.PopularityScore,
 		&dest.DiscoveryData,
@@ -42,13 +42,19 @@ func (r *DiscoveryRepository) GetDestinationByCity(ctx context.Context, city str
 
 func (r *DiscoveryRepository) SaveDestination(ctx context.Context, data domain.DestinationMetadata) error {
 	query := `
-        INSERT INTO destinations (city_name, country_name, description, discovery_data, popularity_score)
+        INSERT INTO destinations (name, country, description, discovery_data, popularity_score)
         VALUES ($1, 'Indonesia', $2, $3, 1)
-        ON CONFLICT (city_name) 
+        ON CONFLICT (name) 
         DO UPDATE SET 
             popularity_score = destinations.popularity_score + 1,
             discovery_data = $3
     `
+	// Fallback 'Indonesia' is temporary; ideally data.CountryName should be used if available
+	country := data.CountryName
+	if country == "" {
+		country = "Indonesia"
+	}
+
 	_, err := r.DB.ExecContext(ctx, query, data.CityName, data.Description, data.DiscoveryData)
 	return err
 }
