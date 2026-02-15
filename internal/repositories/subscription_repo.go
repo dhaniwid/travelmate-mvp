@@ -15,41 +15,56 @@ func NewSubscriptionRepository(db *sql.DB) *SubscriptionRepository {
 	return &SubscriptionRepository{DB: db}
 }
 
-// GetQuota fetches the trip quota for a specific user and month
-// If no quota exists for the month, it initializes it with default generic values (limit 3)
 func (r *SubscriptionRepository) GetQuota(ctx context.Context, userID, month string) (*domain.TripQuota, error) {
+	// First, try to get existing quota record
 	query := `
-		SELECT trips_created, quota_limit
+		SELECT trips_created, quota_limit, month
 		FROM trip_quotas
-		WHERE user_id = $1 AND month = $2
+		WHERE user_id = $1
 	`
 
 	var quota domain.TripQuota
 	quota.UserID = userID
-	quota.Month = month
+	var storedMonth string
 
-	err := r.DB.QueryRowContext(ctx, query, userID, month).Scan(&quota.TripsCreated, &quota.QuotaLimit)
+	err := r.DB.QueryRowContext(ctx, query, userID).Scan(&quota.TripsCreated, &quota.QuotaLimit, &storedMonth)
 
 	if err == sql.ErrNoRows {
-		// Initialize quota for this month
-		// Default to 3 for free tier. Service layer can adjust if user is PRO.
+		// Initialize quota for the first time
 		initQuery := `
-			INSERT INTO trip_quotas (user_id, month, trips_created, quota_limit)
-			VALUES ($1, $2, 0, 3)
-			ON CONFLICT (user_id, month) DO NOTHING
+			INSERT INTO trip_quotas (user_id, month, trips_created, quota_limit, last_reset)
+			VALUES ($1, $2, 0, 3, NOW())
+			ON CONFLICT (user_id) DO UPDATE 
+			SET month = EXCLUDED.month, trips_created = 0, last_reset = NOW()
 		`
 		_, err = r.DB.ExecContext(ctx, initQuery, userID, month)
 		if err != nil {
-			return nil, fmt.Errorf("failed to insert quota: %w", err)
+			return nil, fmt.Errorf("failed to initialize quota: %w", err)
 		}
 
-		// Now fetch the record (whether we just created it or it already existed from conflict)
-		err = r.DB.QueryRowContext(ctx, query, userID, month).Scan(&quota.TripsCreated, &quota.QuotaLimit)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get quota after initialization: %w", err)
-		}
+		quota.Month = month
+		quota.TripsCreated = 0
+		quota.QuotaLimit = 3
+		return &quota, nil
 	} else if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to fetch quota: %w", err)
+	}
+
+	// Month mismatch check (Reset Logic)
+	if storedMonth != month {
+		resetQuery := `
+			UPDATE trip_quotas
+			SET month = $1, trips_created = 0, last_reset = NOW(), updated_at = NOW()
+			WHERE user_id = $2
+		`
+		_, err = r.DB.ExecContext(ctx, resetQuery, month, userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to reset monthly quota: %w", err)
+		}
+		quota.Month = month
+		quota.TripsCreated = 0
+	} else {
+		quota.Month = storedMonth
 	}
 
 	return &quota, nil

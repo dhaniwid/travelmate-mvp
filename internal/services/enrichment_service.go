@@ -15,14 +15,16 @@ import (
 )
 
 type EnrichmentService struct {
-	TripRepo     *repositories.TripRepository
-	GoogleAPIKey string
+	TripRepo         *repositories.TripRepository
+	PlaceLibraryRepo *repositories.PlaceLibraryRepository
+	GoogleAPIKey     string
 }
 
-func NewEnrichmentService(tripRepo *repositories.TripRepository, apiKey string) *EnrichmentService {
+func NewEnrichmentService(tripRepo *repositories.TripRepository, placeLibraryRepo *repositories.PlaceLibraryRepository, apiKey string) *EnrichmentService {
 	return &EnrichmentService{
-		TripRepo:     tripRepo,
-		GoogleAPIKey: apiKey,
+		TripRepo:         tripRepo,
+		PlaceLibraryRepo: placeLibraryRepo,
+		GoogleAPIKey:     apiKey,
 	}
 }
 
@@ -79,46 +81,85 @@ func (s *EnrichmentService) EnrichTrip(ctx context.Context, tripID string) {
 					queryName = act.PlaceName
 				}
 				query := fmt.Sprintf("%s in %s", queryName, dest)
-				place, err := s.findPlace(query)
-				if err == nil && place != nil {
-					mu.Lock()
-					// Update Activity in memory
-					plan.Itinerary[dIdx].Activities[aIdx].PlaceID = place.PlaceID
-					plan.Itinerary[dIdx].Activities[aIdx].Address = place.FormattedAddress
 
-					// NEW: Replace generic activity name with real POI name
-					if place.Name != "" {
-						plan.Itinerary[dIdx].Activities[aIdx].Activity = place.Name
-						plan.Itinerary[dIdx].Activities[aIdx].PlaceName = place.Name
+				// 1. Check local Cache (PlaceLibrary)
+				var placeID, address, name, imageURL string
+				var lat, lng float64
+				var types []string
+
+				cached, _ := s.PlaceLibraryRepo.GetByName(context.Background(), queryName)
+				if cached != nil {
+					log.Printf("🎯 [Enrichment] Cache HIT for: %s", queryName)
+					placeID = cached.GooglePlaceID
+					address = cached.Address
+					name = cached.Name
+					lat = cached.Latitude
+					lng = cached.Longitude
+					if cached.Category != "" {
+						types = []string{cached.Category}
+					}
+					// Handle Photos from cache
+					if photos, ok := cached.Photos.([]interface{}); ok && len(photos) > 0 {
+						if photo, ok := photos[0].(map[string]interface{}); ok {
+							if url, ok := photo["url"].(string); ok {
+								imageURL = url
+							}
+						}
+					}
+				} else {
+					// 2. Fallback to Google API
+					place, err := s.findPlace(query)
+					if err == nil && place != nil {
+						placeID = place.PlaceID
+						address = place.FormattedAddress
+						name = place.Name
+						lat = place.Geometry.Location.Lat
+						lng = place.Geometry.Location.Lng
+						types = place.Types
+
+						if len(place.Photos) > 0 {
+							photoRef := place.Photos[0].PhotoReference
+							imageURL = fmt.Sprintf("https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=%s&key=%s",
+								photoRef, s.GoogleAPIKey)
+						}
+
+						// Save to local Cache for future
+						_ = s.PlaceLibraryRepo.Upsert(context.Background(), &domain.PlaceLibraryItem{
+							Name:          queryName,
+							GooglePlaceID: placeID,
+							Address:       address,
+							Latitude:      lat,
+							Longitude:     lng,
+							Category:      s.classifyActivityType(types),
+							Photos:        []map[string]string{{"url": imageURL}},
+						})
+					}
+				}
+
+				if placeID != "" {
+					mu.Lock()
+					plan.Itinerary[dIdx].Activities[aIdx].PlaceID = placeID
+					plan.Itinerary[dIdx].Activities[aIdx].Address = address
+
+					if name != "" {
+						plan.Itinerary[dIdx].Activities[aIdx].Activity = name
+						plan.Itinerary[dIdx].Activities[aIdx].PlaceName = name
 					}
 
-					// NEW: Classify activity type from Google Places types
-					activityType := s.classifyActivityType(place.Types)
+					activityType := s.classifyActivityType(types)
 					plan.Itinerary[dIdx].Activities[aIdx].Type = activityType
 
-					if place.Geometry.Location.Lat != 0 {
-						valLat := place.Geometry.Location.Lat
-						valLng := place.Geometry.Location.Lng
-						// Update Pointers to float64
-						plan.Itinerary[dIdx].Activities[aIdx].Latitude = &valLat
-						plan.Itinerary[dIdx].Activities[aIdx].Longitude = &valLng
-						// Update legacy Coordinates struct
+					if lat != 0 {
+						plan.Itinerary[dIdx].Activities[aIdx].Latitude = &lat
+						plan.Itinerary[dIdx].Activities[aIdx].Longitude = &lng
 						plan.Itinerary[dIdx].Activities[aIdx].Coordinates = &domain.Coordinates{
-							Lat: valLat,
-							Lng: valLng,
+							Lat: lat,
+							Lng: lng,
 						}
 					}
 
-					// Photo (ambil reference pertama)
-					if len(place.Photos) > 0 {
-						// Google Places Photo URL format
-						// https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photo_reference=...&key=...
-						// Kita simpan FULL URL agar frontend tinggal render
-						photoRef := place.Photos[0].PhotoReference
-						photoURL := fmt.Sprintf("https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=%s&key=%s",
-							photoRef, s.GoogleAPIKey)
-
-						plan.Itinerary[dIdx].Activities[aIdx].ImageURL = photoURL
+					if imageURL != "" {
+						plan.Itinerary[dIdx].Activities[aIdx].ImageURL = imageURL
 					}
 					enrichedCount++
 					mu.Unlock()
@@ -151,6 +192,9 @@ func (s *EnrichmentService) EnrichTrip(ctx context.Context, tripID string) {
 	// 3. Save Context Lat/Long (from first activity or destination)
 	// (Optional: Set Trip Location based on result)
 
+	// NEW: Sanitize Itinerary (Remove logical hallucinations)
+	s.sanitizeItinerary(plan)
+
 	// 4. Save Updates to DB
 	// 4. Save Updates to DB
 	// We always try to save because time generation and type defaults run regardless of API success
@@ -162,6 +206,163 @@ func (s *EnrichmentService) EnrichTrip(ctx context.Context, tripID string) {
 		} else {
 			log.Printf("✅ [Enrichment] Added structured data (time/types) for %s (No external API matches)", trip.Destination)
 		}
+	}
+}
+
+// EnrichSingleActivity (M-126): Targeted enrichment for lazy loading
+func (s *EnrichmentService) EnrichSingleActivity(ctx context.Context, tripID string, dayIdx, actIdx int) (*domain.Activity, error) {
+	log.Printf("✨ [Lazy Enrichment] Day %d, Activity %d for Trip %s", dayIdx, actIdx, tripID)
+
+	// 1. Fetch Trip WITH Plan
+	tripAndPlan, err := s.TripRepo.GetTripWithPlan(ctx, tripID)
+	if err != nil {
+		return nil, fmt.Errorf("trip not found: %w", err)
+	}
+	plan := &tripAndPlan.Plan
+	trip := &tripAndPlan.Trip
+
+	// 2. Locate Activity
+	if dayIdx < 0 || dayIdx >= len(plan.Itinerary) {
+		return nil, fmt.Errorf("invalid day index: %d", dayIdx)
+	}
+	day := &plan.Itinerary[dayIdx]
+	if actIdx < 0 || actIdx >= len(day.Activities) {
+		return nil, fmt.Errorf("invalid activity index: %d", actIdx)
+	}
+	activity := &day.Activities[actIdx]
+
+	// 3. Enrich if needed
+	queryName := activity.PlaceName
+	if queryName == "" {
+		queryName = activity.Activity
+	}
+	query := fmt.Sprintf("%s in %s", queryName, trip.Destination)
+
+	var placeID, address, name, imageURL string
+	var lat, lng float64
+	var types []string
+
+	// Check local Cache First
+	cached, _ := s.PlaceLibraryRepo.GetByName(ctx, queryName)
+	if cached != nil {
+		log.Printf("🎯 [Lazy Enrichment] Cache HIT for: %s", queryName)
+		placeID = cached.GooglePlaceID
+		address = cached.Address
+		name = cached.Name
+		lat = cached.Latitude
+		lng = cached.Longitude
+		if cached.Category != "" {
+			types = []string{cached.Category}
+		}
+		if photos, ok := cached.Photos.([]interface{}); ok && len(photos) > 0 {
+			if photo, ok := photos[0].(map[string]interface{}); ok {
+				if url, ok := photo["url"].(string); ok {
+					imageURL = url
+				}
+			}
+		}
+	} else {
+		place, err := s.findPlace(query)
+		if err == nil && place != nil {
+			placeID = place.PlaceID
+			address = place.FormattedAddress
+			name = place.Name
+			lat = place.Geometry.Location.Lat
+			lng = place.Geometry.Location.Lng
+			types = place.Types
+
+			if len(place.Photos) > 0 {
+				photoRef := place.Photos[0].PhotoReference
+				imageURL = fmt.Sprintf("https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=%s&key=%s",
+					photoRef, s.GoogleAPIKey)
+			}
+
+			// Save to local Cache
+			_ = s.PlaceLibraryRepo.Upsert(ctx, &domain.PlaceLibraryItem{
+				Name:          queryName,
+				GooglePlaceID: placeID,
+				Address:       address,
+				Latitude:      lat,
+				Longitude:     lng,
+				Category:      s.classifyActivityType(types),
+				Photos:        []map[string]string{{"url": imageURL}},
+			})
+		}
+	}
+
+	// 4. Map Results
+	if placeID != "" {
+		activity.PlaceID = placeID
+		activity.Address = address
+		activity.IsSkeleton = false
+
+		if name != "" {
+			activity.PlaceName = name
+			activity.Activity = name
+		}
+
+		activityType := s.classifyActivityType(types)
+		activity.Type = activityType
+
+		if lat != 0 {
+			activity.Latitude = &lat
+			activity.Longitude = &lng
+			activity.Coordinates = &domain.Coordinates{
+				Lat: lat,
+				Lng: lng,
+			}
+		}
+
+		if imageURL != "" {
+			activity.ImageURL = imageURL
+		}
+
+		// 5. Save back to DB
+		if err := s.TripRepo.SaveTripPlan(ctx, *trip, *plan); err != nil {
+			log.Printf("❌ [Lazy Enrichment] Failed to save: %v", err)
+		}
+	}
+
+	return activity, nil
+}
+
+// sanitizeItinerary removes logical inconsistencies like "Return to Hotel" after "Departure"
+func (s *EnrichmentService) sanitizeItinerary(plan *domain.TripPlan) {
+	for i, day := range plan.Itinerary {
+		var validActivities []domain.Activity
+		hasDeparted := false
+
+		for _, act := range day.Activities {
+			// Check if we have already departed
+			if hasDeparted {
+				// If we have departed, skip any "Return to Hotel" or logistics that imply staying
+				// allowed: maybe "Arrive at Airport"? but usually Departure is the last step.
+				// We definitely skip "Return to Hotel"
+				if strings.Contains(strings.ToLower(act.Activity), "return to hotel") ||
+					strings.Contains(strings.ToLower(act.Activity), "back to hotel") {
+					continue
+				}
+				// If it's another activity, we might want to keep it?
+				// The hallucination was specifically "Return to Hotel" at 19:00 after 18:00 Departure.
+				// Let's be aggressive: if it's "Return to Hotel", skip it.
+			}
+
+			// Add activity to valid list
+			validActivities = append(validActivities, act)
+
+			// Check if this activity IS a departure
+			// Keywords: "Departure", "Flight to", "Train to", "Return to [City]" (but not Hotel)
+			lowerName := strings.ToLower(act.Activity)
+			if (strings.Contains(lowerName, "departure") ||
+				strings.Contains(lowerName, "flight to") ||
+				strings.Contains(lowerName, "train to")) &&
+				!strings.Contains(lowerName, "hotel") {
+				hasDeparted = true
+			}
+		}
+
+		// Update the day's activities
+		plan.Itinerary[i].Activities = validActivities
 	}
 }
 

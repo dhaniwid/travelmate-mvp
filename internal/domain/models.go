@@ -29,12 +29,18 @@ type Trip struct {
 	PlanData         *TripPlan `json:"plan_data,omitempty" db:"plan_data"`
 	Status           string    `json:"status"`            // "DRAFT", "UPCOMING", "COMPLETED"
 	EnrichmentStatus string    `json:"enrichment_status"` // "pending", "enriching", "completed"
+	ItineraryStatus  string    `json:"itinerary_status"`  // "pending", "generating", "completed"
+	AIEditsUsed      int       `json:"ai_edits_used" db:"ai_edits_used"`
 }
 
 const (
 	EnrichmentStatusPending   = "pending"
 	EnrichmentStatusEnriching = "enriching"
 	EnrichmentStatusCompleted = "completed"
+
+	ItineraryStatusPending    = "pending"
+	ItineraryStatusGenerating = "generating"
+	ItineraryStatusCompleted  = "completed"
 )
 
 type TripPlan struct {
@@ -67,8 +73,27 @@ type LogisticsData struct {
 
 type Essentials struct {
 	Currency string `json:"currency"`
-	Language string `json:"language"`
-	Voltage  string `json:"voltage"`
+	Category string `json:"category"`
+	Vibe     string `json:"vibe"`
+}
+
+// PlaceLibraryItem represents a cached place enrichment result
+type PlaceLibraryItem struct {
+	ID            string    `json:"id" db:"id"`
+	Name          string    `json:"name" db:"name"`
+	GooglePlaceID string    `json:"google_place_id" db:"google_place_id"`
+	Description   string    `json:"description" db:"description"`
+	Photos        any       `json:"photos" db:"photos"` // Stores JSONB
+	Rating        float64   `json:"rating" db:"rating"`
+	Category      string    `json:"category" db:"category"`
+	Address       string    `json:"address" db:"address"`
+	Latitude      float64   `json:"latitude" db:"latitude"`
+	Longitude     float64   `json:"longitude" db:"longitude"`
+	Website       string    `json:"website" db:"website"`
+	Phone         string    `json:"phone" db:"phone"`
+	OpeningHours  any       `json:"opening_hours" db:"opening_hours"`
+	CreatedAt     time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at" db:"updated_at"`
 }
 
 type ItineraryResponse struct {
@@ -125,11 +150,13 @@ type MorningBriefing struct {
 }
 
 type Activity struct {
-	Time        string `json:"time"`
-	Activity    string `json:"activity"`
-	Type        string `json:"type"`
-	Description string `json:"description"`
-	PlaceName   string `json:"place_name"`
+	Time             string `json:"time"`
+	Activity         string `json:"activity"`
+	Type             string `json:"type"`
+	Description      string `json:"description"`
+	DescriptionShort string `json:"description_short"`
+	PlaceName        string `json:"place_name"`
+	IsSkeleton       bool   `json:"is_skeleton"`
 
 	// Enrichment Fields
 	PlaceID  string `json:"place_id,omitempty"`
@@ -273,6 +300,15 @@ type TripLogisticsResponse struct {
 	ArrivalGuide           ArrivalGuide          `json:"arrival_guide"`
 	BudgetBreakdown        BudgetBreakdown       `json:"budget_breakdown"`
 	PackingList            []PackingCategory     `json:"packing_list"`
+	StrategicAccommodation []AccommodationOption `json:"strategic_accommodation"`
+}
+
+type TripOverviewResponse struct {
+	TripTitle              string                `json:"trip_title"`
+	MorningBriefing        string                `json:"morning_briefing"`
+	ArrivalGuide           ArrivalGuide          `json:"arrival_guide"`
+	BudgetBreakdown        BudgetBreakdown       `json:"budget_breakdown"`
+	Highlights             []TripHighlight       `json:"highlights"`
 	StrategicAccommodation []AccommodationOption `json:"strategic_accommodation"`
 }
 

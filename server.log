@@ -1,0 +1,40 @@
+2026/02/13 10:11:43 Database connected successfully
+
+==============================================================
+🚀 TRAVELMATE PERFORMANCE DASHBOARD (Last 24h)
+--------------------------------------------------------------
+| Task Name       | Avg Latency  | Max Latency  | Calls    |
+--------------------------------------------------------------
+| No data recorded yet. Start planning some trips!           |
+==============================================================
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] POST   /api/v1/trips             --> travelmate/internal/http/handlers.(*TripHandler).CreateTripAsync-fm (4 handlers)
+[GIN-debug] POST   /api/v1/trips/stream      --> travelmate/internal/http/handlers.(*TripHandler).CreateTripStream-fm (4 handlers)
+[GIN-debug] GET    /api/v1/trips/:id         --> travelmate/internal/http/handlers.(*TripHandler).GetTrip-fm (4 handlers)
+[GIN-debug] GET    /api/v1/discovery         --> travelmate/internal/http/handlers.(*TripHandler).GetDiscovery-fm (4 handlers)
+[GIN-debug] GET    /api/v1/discovery/trending --> travelmate/internal/http/handlers.(*DiscoveryHandler).GetTrending-fm (4 handlers)
+[GIN-debug] GET    /api/v1/discovery/explore --> travelmate/internal/http/handlers.(*DiscoveryHandler).GetExplore-fm (4 handlers)
+[GIN-debug] POST   /api/v1/alternatives      --> travelmate/internal/http/handlers.(*TripHandler).GetAlternatives-fm (4 handlers)
+[GIN-debug] POST   /api/v1/trips/:id/feedback --> travelmate/internal/http/handlers.(*FeedbackHandler).SubmitFeedback-fm (4 handlers)
+[GIN-debug] POST   /api/webhooks/stripe      --> travelmate/internal/http/handlers.(*WebhookHandler).HandleStripeWebhook-fm (4 handlers)
+[GIN-debug] POST   /api/test/regenerate-prompt --> travelmate/internal/http/handlers.(*TestHandler).GeneratePrompt-fm (4 handlers)
+[GIN-debug] GET    /api/v1/trips             --> travelmate/internal/http/handlers.(*TripHandler).ListTrips-fm (5 handlers)
+[GIN-debug] POST   /api/v1/trips/save        --> travelmate/internal/http/handlers.(*TripHandler).SaveTrip-fm (5 handlers)
+[GIN-debug] DELETE /api/v1/trips/:id         --> travelmate/internal/http/handlers.(*TripHandler).DeleteTrip-fm (5 handlers)
+[GIN-debug] POST   /api/v1/trips/:id/refine  --> travelmate/internal/http/handlers.(*TripHandler).RefineTrip-fm (5 handlers)
+[GIN-debug] GET    /api/v1/trips/:id/export/pdf --> travelmate/internal/http/handlers.(*TripHandler).ExportPDF-fm (5 handlers)
+[GIN-debug] GET    /api/v1/user/subscription --> travelmate/internal/http/handlers.(*SubscriptionHandler).GetSubscription-fm (5 handlers)
+[GIN-debug] GET    /api/v1/user/quota        --> travelmate/internal/http/handlers.(*SubscriptionHandler).GetQuota-fm (5 handlers)
+[GIN-debug] POST   /api/v1/user/subscription/checkout --> travelmate/internal/http/handlers.(*SubscriptionHandler).CreateCheckoutSession-fm (5 handlers)
+[GIN-debug] GET    /api/v1/user/preferences  --> travelmate/internal/http/handlers.(*PreferencesHandler).GetPreferences-fm (5 handlers)
+[GIN-debug] PUT    /api/v1/user/preferences  --> travelmate/internal/http/handlers.(*PreferencesHandler).UpdatePreferences-fm (5 handlers)
+2026/02/13 10:11:43 Server running on port 8889
+[GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
+Please check https://github.com/gin-gonic/gin/blob/master/docs/doc.md#dont-trust-all-proxies for details.
+[GIN-debug] Listening and serving HTTP on :8889
+[GIN-debug] [ERROR] listen tcp :8889: bind: address already in use
+2026/02/13 10:11:43 listen tcp :8889: bind: address already in use

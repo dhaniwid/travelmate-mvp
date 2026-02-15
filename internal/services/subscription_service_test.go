@@ -42,6 +42,7 @@ func (m *MockUserRepo) GetUserByStripeID(ctx context.Context, stripeCustID strin
 
 type MockSubRepo struct {
 	GetQuotaFunc             func(ctx context.Context, userID, month string) (*domain.TripQuota, error)
+	IncrementQuotaFunc       func(ctx context.Context, userID, month string) error
 	LogSubscriptionEventFunc func(ctx context.Context, event *domain.SubscriptionEvent) error
 }
 
@@ -50,6 +51,12 @@ func (m *MockSubRepo) GetQuota(ctx context.Context, userID, month string) (*doma
 		return m.GetQuotaFunc(ctx, userID, month)
 	}
 	return &domain.TripQuota{}, nil
+}
+func (m *MockSubRepo) IncrementQuota(ctx context.Context, userID, month string) error {
+	if m.IncrementQuotaFunc != nil {
+		return m.IncrementQuotaFunc(ctx, userID, month)
+	}
+	return nil
 }
 func (m *MockSubRepo) LogSubscriptionEvent(ctx context.Context, event *domain.SubscriptionEvent) error {
 	if m.LogSubscriptionEventFunc != nil {

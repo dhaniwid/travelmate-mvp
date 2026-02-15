@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 	"travelmate/internal/domain"
 
@@ -21,6 +22,7 @@ type UserRepo interface {
 // SubRepo defines subscription data access methods
 type SubRepo interface {
 	GetQuota(ctx context.Context, userID, month string) (*domain.TripQuota, error)
+	IncrementQuota(ctx context.Context, userID, month string) error
 	LogSubscriptionEvent(ctx context.Context, event *domain.SubscriptionEvent) error
 }
 
@@ -209,6 +211,28 @@ func (s *SubscriptionService) GetUserSubscription(ctx context.Context, userID, e
 		return newUser, nil
 	}
 
+	// 3. LAZY EXPIRATION CHECK (M-127)
+	// If user is PRO but the subscription period has ended, downgrade them on the fly.
+	if user.SubscriptionTier == "PRO" && user.SubscriptionEndsAt != nil {
+		if time.Now().After(*user.SubscriptionEndsAt) {
+			log.Printf("Lazy Expiration: User %s has expired subscription. Downgrading to FREE.", userID)
+
+			// Update local object immediately for the response
+			user.SubscriptionTier = "FREE"
+			user.SubscriptionStatus = "EXPIRED"
+
+			// Fire-and-forget DB update to sync the state
+			go func(uid string) {
+				// We use a background context or a timeout-safe context for the background update
+				bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := s.UserRepo.UpdateSubscription(bgCtx, uid, "FREE", "EXPIRED", user.StripeCustomerID, user.StripeSubscriptionID); err != nil {
+					log.Printf("Failed to async-update expired subscription for %s: %v", uid, err)
+				}
+			}(userID)
+		}
+	}
+
 	return user, nil
 }
 
@@ -260,8 +284,14 @@ func (s *SubscriptionService) CheckQuotaAvailability(ctx context.Context, userID
 		return false, fmt.Errorf("user not found") // Should be created by middleware/auth
 	}
 
-	// 2. If PRO, allow
+	// 2. If PRO, allow (with lazy expiration check)
 	if user.SubscriptionTier == "PRO" && user.SubscriptionStatus == "ACTIVE" {
+		if user.SubscriptionEndsAt != nil && time.Now().After(*user.SubscriptionEndsAt) {
+			// Instead of full lazy logic here, we just block and let the next profile/quota call fix the state.
+			// Or better, we can also trigger the same logic if needed.
+			log.Printf("Quota Check: Subscription for %s has expired.", userID)
+			return false, nil
+		}
 		return true, nil
 	}
 
@@ -277,4 +307,10 @@ func (s *SubscriptionService) CheckQuotaAvailability(ctx context.Context, userID
 	}
 
 	return true, nil
+}
+
+// IncrementQuota increments the user's trip quota for the current month
+func (s *SubscriptionService) IncrementQuota(ctx context.Context, userID string) error {
+	month := time.Now().Format("2006-01")
+	return s.SubRepo.IncrementQuota(ctx, userID, month)
 }

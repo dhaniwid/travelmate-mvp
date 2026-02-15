@@ -318,3 +318,54 @@ func (t *TemplatePlanner) GenerateTripLogistics(ctx context.Context, trip domain
 		StrategicAccommodation: plan.AccommodationOptions,
 	}, nil
 }
+
+// GenerateTripOverview (Stub)
+func (t *TemplatePlanner) GenerateTripOverview(ctx context.Context, trip domain.Trip) (domain.TripOverviewResponse, error) {
+	return domain.TripOverviewResponse{
+		TripTitle:       "Tropical Escape to " + trip.Destination,
+		MorningBriefing: "Pack your sunscreen and get ready for adventure!",
+		ArrivalGuide: domain.ArrivalGuide{
+			PrimaryTransport:    "Plane via Template Airways",
+			TravelTime:          "4h 20m",
+			EstimatedPriceRange: "$300 - $500",
+			VisaInfo:            "Not required for most visitors.",
+			BestTimeVisit:       "May to September",
+		},
+		BudgetBreakdown: domain.BudgetBreakdown{
+			Transport:     200,
+			Accommodation: 500,
+			Food:          300,
+			Tickets:       150,
+			Misc:          50,
+		},
+		Highlights: []domain.TripHighlight{
+			{Title: "Crystal Beach", Type: "Relaxing", Hook: "White sands and turquoise waters."},
+			{Title: "Ancient Ruins", Type: "Sightseeing", Hook: "Explore the remnants of a lost civilization."},
+		},
+		StrategicAccommodation: []domain.AccommodationOption{
+			{
+				Type:                 "Resort",
+				AreaName:             "Sunrise Bay",
+				RecommendationReason: "Direct beach access and premium amenities.",
+				Vibe:                 "Luxury & Tranquility",
+				HotelSuggestions:     []string{"Template Beach Resort", "Azure Bay Hotel"},
+			},
+		},
+	}, nil
+}
+
+// GenerateTripItinerary (Stub)
+func (t *TemplatePlanner) GenerateTripItinerary(ctx context.Context, trip domain.Trip, overviewJSON string) (domain.ItineraryResponse, error) {
+	return t.GenerateOnlyItinerary(ctx, trip)
+}
+
+// GetRegeneratePrompt (Stub)
+func (t *TemplatePlanner) GetRegeneratePrompt(ctx context.Context, trip domain.Trip, prefs domain.UserPreferences) (string, error) {
+	return "TEMPLATE MODE: No dynamic AI prompt generated.", nil
+}
+
+// GenerateTripSkeleton (Stub)
+func (t *TemplatePlanner) GenerateTripSkeleton(ctx context.Context, trip domain.Trip) (domain.ItineraryResponse, error) {
+	// Re-use logic from GenerateOnlyItinerary
+	return t.GenerateOnlyItinerary(ctx, trip)
+}

@@ -34,7 +34,8 @@ func main() {
 	destRepo := repositories.NewDestinationRepository(database)
 	userRepo := repositories.NewUserRepository(database)
 	subRepo := repositories.NewSubscriptionRepository(database)
-	prefRepo := repositories.NewPreferencesRepository(database) // NEW
+	prefRepo := repositories.NewPreferencesRepository(database)
+	placeLibRepo := repositories.NewPlaceLibraryRepository(database) // NEW
 
 	// 4. Services (Dependency Injection)
 	promptService := services.NewPromptService(database)
@@ -58,7 +59,7 @@ func main() {
 	locationService := services.NewLocationService(locRepo, promptService, cfg.OpenAIKey, imageSvc)
 
 	// Enrichment Service
-	enrichService := services.NewEnrichmentService(tripRepo, cfg.GoogleAPIKey)
+	enrichService := services.NewEnrichmentService(tripRepo, placeLibRepo, cfg.GoogleAPIKey)
 
 	transportService := services.NewTransportService(transportRepo)
 
@@ -71,10 +72,10 @@ func main() {
 	subHandler := handlers.NewSubscriptionHandler(subService)
 	webhookHandler := handlers.NewWebhookHandler(subService, stripeClient)
 	discoveryHandler := handlers.NewDiscoveryHandler(discoveryService)
-	prefHandler := handlers.NewPreferencesHandler(prefRepo) // NEW
+	prefHandler := handlers.NewPreferencesHandler(prefRepo)
 
 	// 6. Router
-	r := http.SetupRouter(tripHandler, fbHandler, subHandler, webhookHandler, discoveryHandler, prefHandler)
+	r := http.SetupRouter(tripHandler, fbHandler, subHandler, webhookHandler, discoveryHandler, prefHandler, cfg.AllowOrigins)
 
 	// 7. Run
 	log.Printf("Server running on port %s", cfg.Port)

@@ -2,16 +2,15 @@ package handlers
 
 import (
 	"net/http"
-	"travelmate/internal/services"
 
 	"github.com/gin-gonic/gin"
 )
 
 type SubscriptionHandler struct {
-	Service *services.SubscriptionService
+	Service ISubscriptionService
 }
 
-func NewSubscriptionHandler(s *services.SubscriptionService) *SubscriptionHandler {
+func NewSubscriptionHandler(s ISubscriptionService) *SubscriptionHandler {
 	return &SubscriptionHandler{Service: s}
 }
 

@@ -19,5 +19,9 @@ type PlannerEngine interface {
 	GenerateFullItineraryPass(ctx context.Context, trip domain.Trip) (domain.AIPlannerResponse, error)
 	GenerateTripCore(ctx context.Context, trip domain.Trip) (domain.ItineraryResponse, error)
 	EnrichTripVibe(ctx context.Context, stage1JSON string) (domain.TripVibeResponse, error)
+	GenerateTripSkeleton(ctx context.Context, trip domain.Trip) (domain.ItineraryResponse, error)
 	GenerateTripLogistics(ctx context.Context, trip domain.Trip) (domain.TripLogisticsResponse, error)
+	GenerateTripOverview(ctx context.Context, trip domain.Trip) (domain.TripOverviewResponse, error)
+	GenerateTripItinerary(ctx context.Context, trip domain.Trip, overviewJSON string) (domain.ItineraryResponse, error)
+	GetRegeneratePrompt(ctx context.Context, trip domain.Trip, prefs domain.UserPreferences) (string, error)
 }

@@ -5,18 +5,18 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"travelmate/internal/domain"
-	"travelmate/internal/services"
 
 	"github.com/gin-gonic/gin"
 )
 
 type TripHandler struct {
-	Service    *services.TripService
-	SubService *services.SubscriptionService
+	Service    ITripService
+	SubService ISubscriptionService
 }
 
-func NewTripHandler(s *services.TripService, sub *services.SubscriptionService) *TripHandler {
+func NewTripHandler(s ITripService, sub ISubscriptionService) *TripHandler {
 	return &TripHandler{Service: s, SubService: sub}
 }
 
@@ -50,6 +50,25 @@ func (h *TripHandler) CreateTripStream(c *gin.Context) {
 
 	log.Printf("Creating trip for UserID: %s", req.UserID)
 
+	// Quota Enforcement for Registered Users
+	if req.UserID != "" && req.UserID != "guest" {
+		allowed, err := h.SubService.CheckQuotaAvailability(c.Request.Context(), req.UserID)
+		if err != nil {
+			log.Printf("Quota check error: %v", err)
+		} else if !allowed {
+			c.JSON(http.StatusForbidden, domain.APIError{
+				Code:    "quota_exceeded",
+				Message: "Monthly trip generation limit reached. Upgrade to PRO for unlimited planning!",
+			})
+			return
+		}
+
+		// Increment Quota
+		if err := h.SubService.IncrementQuota(c.Request.Context(), req.UserID); err != nil {
+			log.Printf("Failed to increment quota for %s: %v", req.UserID, err)
+		}
+	}
+
 	// Jalankan streaming di Service
 	go h.Service.GenerateTripStream(c.Request.Context(), req, eventChan, doneChan)
 
@@ -82,6 +101,25 @@ func (h *TripHandler) CreateTripAsync(c *gin.Context) {
 		return
 	}
 
+	// Quota Enforcement for Registered Users
+	if req.UserID != "" && req.UserID != "guest" {
+		allowed, err := h.SubService.CheckQuotaAvailability(c.Request.Context(), req.UserID)
+		if err != nil {
+			log.Printf("Quota check error: %v", err)
+		} else if !allowed {
+			c.JSON(http.StatusForbidden, domain.APIError{
+				Code:    "quota_exceeded",
+				Message: "Monthly trip generation limit reached. Upgrade to PRO for unlimited planning!",
+			})
+			return
+		}
+
+		// Increment Quota
+		if err := h.SubService.IncrementQuota(c.Request.Context(), req.UserID); err != nil {
+			log.Printf("Failed to increment quota for %s: %v", req.UserID, err)
+		}
+	}
+
 	// Call Service
 	trip, err := h.Service.GenerateTripAsync(c.Request.Context(), req)
 	if err != nil {
@@ -96,7 +134,8 @@ func (h *TripHandler) CreateTripAsync(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"trip_id":           trip.ID,
 		"enrichment_status": trip.EnrichmentStatus,
-		"message":           "Trip generation started. Poll /api/trips/:id for updates.",
+		"itinerary_status":  trip.ItineraryStatus,
+		"message":           "Trip generation started. Phase 1 (Overview) complete. Phase 2 (Detailed) is running in background.",
 	})
 }
 
@@ -219,6 +258,17 @@ func (h *TripHandler) SaveTrip(c *gin.Context) {
 			Message: "Failed to claim trip: " + err.Error(),
 		})
 		return
+	}
+
+	// 🛡️ SECURITY: INCREMENT QUOTA ON CLAIM
+	// Since guest generation often bypasses the immediate increment (or uses guest bucket),
+	// we must count the trip against the user's permanent quota here.
+	if req.UserID != "guest" {
+		if err := h.SubService.IncrementQuota(c.Request.Context(), req.UserID); err != nil {
+			log.Printf("⚠️ [QUOTA] Failed to increment on claim for %s: %v", req.UserID, err)
+		} else {
+			log.Printf("📊 [QUOTA] Incremented for %s on trip claim", req.UserID)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -385,4 +435,33 @@ func (h *TripHandler) ExportPDF(c *gin.Context) {
 
 	// 3. Write Data
 	c.Data(http.StatusOK, "application/pdf", pdfBytes)
+}
+
+// EnrichActivity handles GET /api/v1/trips/:id/enrich/:day_index/:activity_index
+func (h *TripHandler) EnrichActivity(c *gin.Context) {
+	tripID := c.Param("id")
+	dayIdxStr := c.Param("day_index")
+	actIdxStr := c.Param("activity_index")
+
+	dayIdx, err := strconv.Atoi(dayIdxStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, domain.APIError{Code: "bad_request", Message: "Invalid day index"})
+		return
+	}
+
+	actIdx, err := strconv.Atoi(actIdxStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, domain.APIError{Code: "bad_request", Message: "Invalid activity index"})
+		return
+	}
+
+	enrichedActivity, err := h.Service.EnrichActivity(c.Request.Context(), tripID, dayIdx, actIdx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, domain.APIError{Code: "enrichment_error", Message: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": enrichedActivity,
+	})
 }

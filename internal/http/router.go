@@ -1,6 +1,7 @@
 package http
 
 import (
+	"strings"
 	"time"
 	"travelmate/internal/http/handlers"
 	"travelmate/internal/http/middleware"
@@ -15,7 +16,8 @@ func SetupRouter(
 	subHandler *handlers.SubscriptionHandler,
 	webhookHandler *handlers.WebhookHandler,
 	discoveryHandler *handlers.DiscoveryHandler,
-	prefHandler *handlers.PreferencesHandler, // NEW
+	prefHandler *handlers.PreferencesHandler,
+	allowOrigins string,
 ) *gin.Engine {
 
 	r := gin.New()
@@ -25,8 +27,9 @@ func SetupRouter(
 	r.Use(middleware.JSONLogger())
 
 	// 🛠️ CONFIG CORS
+	origins := strings.Split(allowOrigins, ",")
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"},
+		AllowOrigins:     origins,
 		AllowMethods:     []string{"GET", "POST", "OPTIONS", "PUT", "DELETE"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With", "X-User-ID", "Stripe-Signature"},
 		ExposeHeaders:    []string{"Content-Length", "Connection", "Cache-Control", "Transfer-Encoding"},
@@ -47,6 +50,7 @@ func SetupRouter(
 			v1.POST("/trips", tripHandler.CreateTripAsync) // NEW: Progressive Generation (M-123)
 			v1.POST("/trips/stream", tripHandler.CreateTripStream)
 			v1.GET("/trips/:id", tripHandler.GetTrip)
+			v1.GET("/trips/:id/enrich/:day_index/:activity_index", tripHandler.EnrichActivity) // Lazy Enrichment 🦴✨
 
 			// 2. Discovery & Inspiration (NEW ROUTE) 🚀
 			// Endpoint: GET /api/v1/discovery?city=Surabaya

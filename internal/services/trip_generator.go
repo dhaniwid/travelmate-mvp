@@ -277,6 +277,7 @@ func (s *TripService) GetPackingList(ctx context.Context, tripID string) ([]doma
 // Flow: Fast Init -> Return 200 -> Async Enrichment
 // ==============================================================================
 func (s *TripService) GenerateTripAsync(ctx context.Context, trip domain.Trip) (*domain.Trip, error) {
+	startTime := time.Now()
 	// 1. Setup Trip ID
 	if trip.ID == "" {
 		trip.ID = uuid.New().String()
@@ -308,40 +309,67 @@ func (s *TripService) GenerateTripAsync(ctx context.Context, trip domain.Trip) (
 	// Enrich Location (Lat/Long/ID) - Keep sync as it is fast and critical for DB
 	trip = s.enrichLocation(ctx, trip)
 
-	// --- STAGE 1: Core Itinerary (Synchronous) ---
-	log.Printf("🚀 [STAGE 1] Starting Core generation for %s", trip.ID)
-	coreRes, err := s.Planner.GenerateTripCore(ctx, trip)
-	if err != nil {
-		return nil, fmt.Errorf("core generation failed: %w", err)
+	// --- NEW: SKELETON-FIRST GENERATION (M-126) ---
+	log.Printf("🚀 [SKELETON-FIRST] Starting Parallel Skeleton & Logistics for %s", trip.ID)
+
+	var wg sync.WaitGroup
+	var (
+		itiRes domain.ItineraryResponse
+		itiErr error
+		logRes domain.TripLogisticsResponse
+		logErr error
+	)
+
+	wg.Add(2)
+	// Task 1: Skeleton Itinerary (Real Names, Geo-Hints, Hooks)
+	go func() {
+		defer wg.Done()
+		itiRes, itiErr = s.Planner.GenerateTripSkeleton(ctx, trip)
+	}()
+
+	// Task 2: Strategic Logistics (Visa, Accommo, Budget)
+	go func() {
+		defer wg.Done()
+		logRes, logErr = s.Planner.GenerateTripLogistics(ctx, trip)
+	}()
+
+	wg.Wait()
+
+	if itiErr != nil {
+		return nil, fmt.Errorf("skeleton generation failed: %w", itiErr)
+	}
+	if logErr != nil {
+		log.Printf("⚠️ [LOGISTICS] Stage 1 failed: %v", logErr)
 	}
 
-	// Initialize empty structs to prevent frontend crashes
+	// Map Overview to PlanData
 	fullPlan := domain.TripPlan{
 		TripID:               trip.ID,
-		Itinerary:            coreRes.Itinerary,
-		ArrivalGuide:         &domain.ArrivalGuide{},
-		BudgetBreakdown:      domain.BudgetBreakdown{},
-		PackingList:          []domain.PackingCategory{},
+		Itinerary:            itiRes.Itinerary,
+		ArrivalGuide:         &logRes.ArrivalGuide,
+		BudgetBreakdown:      logRes.BudgetBreakdown,
+		PackingList:          logRes.PackingList,
 		TransportOptions:     []domain.TransportOption{},
-		AccommodationOptions: []domain.AccommodationOption{},
-		Highlights:           []domain.TripHighlight{},
+		AccommodationOptions: logRes.StrategicAccommodation,
+		Highlights:           []domain.TripHighlight{}, // To be enriched on-demand or background
+		MorningBriefing:      "",                       // Lazy load
+		Tagline:              trip.Destination + " Escape",
 	}
 
-	// 3. Save Trip with Core Plan to DB
+	// 3. Save Trip with Skeleton Plan to DB
 	trip.Status = "UPCOMING"
-	trip.EnrichmentStatus = domain.EnrichmentStatusEnriching
+	trip.EnrichmentStatus = domain.EnrichmentStatusPending
+	trip.ItineraryStatus = domain.ItineraryStatusCompleted // Skeleton is the primary itinerary now
 	trip.PlanData = &fullPlan
 	trip.CreatedAt = time.Now()
 
 	if err := s.TripRepo.Create(ctx, &trip); err != nil {
-		return nil, fmt.Errorf("failed to save core trip: %w", err)
+		return nil, fmt.Errorf("failed to save skeleton trip: %w", err)
 	}
 
-	log.Printf("📍 [STAGE 1] Core Plan saved for trip %s. Returning response.", trip.ID)
+	log.Printf("📍 [SKELETON-FIRST] Skeleton Plan saved for trip %s. Response time: %v", trip.ID, time.Since(startTime))
 
-	// 4. Spawn Stage 2 & 3 Pipeline (Background)
-	go s.RunEnrichmentPipeline(trip.ID, coreRes)
-
+	// No background EnrichmentPipeline here! Everything is Lazy Load now.
 	return &trip, nil
 }
 
@@ -442,44 +470,54 @@ func (s *TripService) RunEnrichmentPipeline(tripID string, stage1Result domain.I
 
 	log.Printf("📊 [CACHE STATS] Hits: %d | Missing: %d", cachedCount, len(missingActivities))
 
-	// --- STEP B: SMART PROMPTING ---
-	// Prepare partial context for AI if there are missing activities
-	var vibeRes domain.TripVibeResponse
-	var vibeErr error
+	// --- STEP B: SMART PROMPTING (Parallel Stage 2 & 3) ---
+	var (
+		vibeRes domain.TripVibeResponse
+		vibeErr error
+		logRes  domain.TripLogisticsResponse
+		logErr  error
+		pewg    sync.WaitGroup
+	)
 
-	if len(missingActivities) > 0 {
-		// Construct a minimal "Needs Enrichment" JSON
-		partialItinerary := domain.ItineraryResponse{
-			Itinerary: []domain.ItineraryDay{},
-		}
-		// Group missing into days for prompt context
-		dayMap := make(map[int][]domain.Activity)
-		for _, m := range missingActivities {
-			dayMap[m.Day] = append(dayMap[m.Day], m.Activity)
-		}
-		for dayNum, acts := range dayMap {
-			partialItinerary.Itinerary = append(partialItinerary.Itinerary, domain.ItineraryDay{
-				Day:        dayNum,
-				Activities: acts,
-			})
-		}
+	pewg.Add(2)
 
-		s1Bytes, _ := json.Marshal(partialItinerary)
-		log.Printf("🧠 [AI] Calling TRIP_ENRICHMENT for %d new activities", len(missingActivities))
-		vibeRes, vibeErr = s.Planner.EnrichTripVibe(ctx, string(s1Bytes))
-	} else {
-		log.Printf("✅ [AI SKIP] All activities cached. Only generating Morning Briefings and Highlights.")
-		// We still need Highlights and Morning Briefings, so we call with full context but tell it to just skip descriptions?
-		// Actually, let's call it with full context but the AI will see they all have place_names
-		// For simplicity, if everything is cached, we still call AI for Highlights & Briefings
-		s1Bytes, _ := json.Marshal(stage1Result)
-		vibeRes, vibeErr = s.Planner.EnrichTripVibe(ctx, string(s1Bytes))
-	}
+	// Stage 2: Enrichment (Vibe/Descriptions)
+	go func() {
+		defer pewg.Done()
+		if len(missingActivities) > 0 {
+			// Construct a minimal "Needs Enrichment" JSON
+			partialItinerary := domain.ItineraryResponse{
+				Itinerary: []domain.ItineraryDay{},
+			}
+			// Group missing into days for prompt context
+			dayMap := make(map[int][]domain.Activity)
+			for _, m := range missingActivities {
+				dayMap[m.Day] = append(dayMap[m.Day], m.Activity)
+			}
+			for dayNum, acts := range dayMap {
+				partialItinerary.Itinerary = append(partialItinerary.Itinerary, domain.ItineraryDay{
+					Day:        dayNum,
+					Activities: acts,
+				})
+			}
 
-	// Stage 3 (Logistics) - Always run as it's macro
-	var logRes domain.TripLogisticsResponse
-	var logErr error
-	logRes, logErr = s.Planner.GenerateTripLogistics(ctx, trip)
+			s1Bytes, _ := json.Marshal(partialItinerary)
+			log.Printf("🧠 [AI] Calling TRIP_ENRICHMENT for %d new activities", len(missingActivities))
+			vibeRes, vibeErr = s.Planner.EnrichTripVibe(ctx, string(s1Bytes))
+		} else {
+			log.Printf("✅ [AI SKIP] All activities cached. Generating Highlights/Briefings only.")
+			s1Bytes, _ := json.Marshal(stage1Result)
+			vibeRes, vibeErr = s.Planner.EnrichTripVibe(ctx, string(s1Bytes))
+		}
+	}()
+
+	// Stage 3: Logistics
+	go func() {
+		defer pewg.Done()
+		logRes, logErr = s.Planner.GenerateTripLogistics(ctx, trip)
+	}()
+
+	pewg.Wait()
 
 	if vibeErr != nil {
 		log.Printf("⚠️ [PIPELINE] Stage 2 (Vibe) failed: %v", vibeErr)
@@ -571,6 +609,50 @@ func (s *TripService) RunEnrichmentPipeline(tripID string, stage1Result domain.I
 	go s.EnrichmentSvc.EnrichTrip(context.Background(), tripID)
 
 	log.Printf("✅ [PIPELINE] Pipeline Completed for %s in %v", tripID, time.Since(startTime))
+}
+
+// GenerateDetailedItineraryBackground (Phase 2): Background worker for detailed schedule
+func (s *TripService) GenerateDetailedItineraryBackground(tripID string, trip domain.Trip, overviewJSON string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	log.Printf("🚀 [STAGE 2] Starting Background Detailed Itinerary for %s", tripID)
+
+	// UPDATE STATUS to 'generating'
+	trip.ItineraryStatus = domain.ItineraryStatusGenerating
+	_ = s.TripRepo.SaveTripPlan(ctx, trip, *trip.PlanData) // Minimal update
+
+	// 1. Generate Itinerary
+	itiRes, err := s.Planner.GenerateTripItinerary(ctx, trip, overviewJSON)
+	if err != nil {
+		log.Printf("❌ [STAGE 2] Failed: %v", err)
+		return
+	}
+
+	// 2. Fetch existing plan to merge
+	tripAndPlan, err := s.TripRepo.GetTripWithPlan(ctx, tripID)
+	if err != nil || tripAndPlan == nil {
+		log.Printf("❌ [STAGE 2] Trip not found during merge: %v", err)
+		return
+	}
+	finalPlan := tripAndPlan.Plan
+	finalTrip := tripAndPlan.Trip
+
+	// 3. Merge Itinerary
+	finalPlan.Itinerary = itiRes.Itinerary
+	finalTrip.ItineraryStatus = domain.ItineraryStatusCompleted
+
+	// 4. Save to DB
+	if err := s.TripRepo.SaveTripPlan(ctx, finalTrip, finalPlan); err != nil {
+		log.Printf("❌ [STAGE 2] Final save failed: %v", err)
+		return
+	}
+
+	log.Printf("✅ [STAGE 2] Detailed Itinerary Completed for %s", tripID)
+
+	// 5. Trigger Enrichment Pipeline (Stage 3 & Cache Seeding)
+	// Reusing EnrichmentPipeline for descriptions/photos if needed
+	go s.RunEnrichmentPipeline(tripID, itiRes)
 }
 
 func (s *TripService) sendEvent(ch chan string, dataType string, data interface{}) {

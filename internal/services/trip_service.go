@@ -225,3 +225,8 @@ func (s *TripService) ExportTripToPDF(ctx context.Context, tripID string) ([]byt
 
 	return pdfBytes, filename, nil
 }
+
+// EnrichActivity (M-126): Proxies to EnrichmentService
+func (s *TripService) EnrichActivity(ctx context.Context, tripID string, dayIdx, actIdx int) (*domain.Activity, error) {
+	return s.EnrichmentSvc.EnrichSingleActivity(ctx, tripID, dayIdx, actIdx)
+}

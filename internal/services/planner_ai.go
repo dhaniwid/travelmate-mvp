@@ -608,6 +608,74 @@ func (p *AIPlanner) EnrichTripVibe(ctx context.Context, stage1JSON string) (doma
 	return resp, nil
 }
 
+// GenerateTripSkeleton (Phase 1): Ultra-fast generation of itinerary structure only
+func (p *AIPlanner) GenerateTripSkeleton(ctx context.Context, trip domain.Trip) (domain.ItineraryResponse, error) {
+	startTime := time.Now()
+	log.Printf("⏱️ [PERF] Starting TRIP_SKELETON AI Request (Phase 1) for %s...", trip.Destination)
+
+	var rawResponse json.RawMessage
+	inputData := map[string]interface{}{
+		"Trip": trip,
+	}
+
+	if err := p.requestAI(ctx, "TRIP_SKELETON", inputData, &rawResponse); err != nil {
+		return domain.ItineraryResponse{}, err
+	}
+
+	log.Printf("⏱️ [PERF] TRIP_SKELETON Request completed in: %v", time.Since(startTime))
+
+	cleanData := cleanJSON(rawResponse)
+
+	// Custom struct for skeleton decoding to handle "geo_hint"
+	type skeletonActivity struct {
+		domain.Activity
+		GeoHint struct {
+			Lat float64 `json:"lat"`
+			Lng float64 `json:"lng"`
+		} `json:"geo_hint"`
+	}
+
+	type skeletonDay struct {
+		Day        int                `json:"day"`
+		Title      string             `json:"title"`
+		Activities []skeletonActivity `json:"activities"`
+	}
+
+	type skeletonResponse struct {
+		Itinerary []skeletonDay `json:"itinerary"`
+	}
+
+	var rawResp skeletonResponse
+	if err := json.Unmarshal(cleanData, &rawResp); err != nil {
+		return domain.ItineraryResponse{}, fmt.Errorf("skeleton parse error: %w", err)
+	}
+
+	// Map back to domain.ItineraryResponse
+	resp := domain.ItineraryResponse{
+		Itinerary: make([]domain.ItineraryDay, len(rawResp.Itinerary)),
+	}
+
+	for i, day := range rawResp.Itinerary {
+		resp.Itinerary[i] = domain.ItineraryDay{
+			Day:        day.Day,
+			Title:      day.Title,
+			Activities: make([]domain.Activity, len(day.Activities)),
+		}
+		for j, act := range day.Activities {
+			domainAct := act.Activity
+			// Seed coordinates from geo_hint
+			lat := act.GeoHint.Lat
+			lng := act.GeoHint.Lng
+			domainAct.Latitude = &lat
+			domainAct.Longitude = &lng
+			domainAct.IsSkeleton = true
+			resp.Itinerary[i].Activities[j] = domainAct
+		}
+	}
+
+	return resp, nil
+}
+
 // GenerateTripLogistics (Stage 3): Strategic details (Visa, Transport, Accommo, Budget)
 func (p *AIPlanner) GenerateTripLogistics(ctx context.Context, trip domain.Trip) (domain.TripLogisticsResponse, error) {
 	startTime := time.Now()
@@ -631,4 +699,102 @@ func (p *AIPlanner) GenerateTripLogistics(ctx context.Context, trip domain.Trip)
 	}
 
 	return resp, nil
+}
+
+// GenerateTripOverview (Phase 1): Fast-track generation of high-level details
+func (p *AIPlanner) GenerateTripOverview(ctx context.Context, trip domain.Trip) (domain.TripOverviewResponse, error) {
+	startTime := time.Now()
+	log.Printf("⏱️ [PERF] Starting TRIP_OVERVIEW AI Request (Phase 1) for %s...", trip.Destination)
+
+	var rawResponse json.RawMessage
+	inputData := map[string]interface{}{
+		"Trip":        trip,
+		"Destination": trip.Destination,
+		"TripDays":    trip.TripDays,
+		"Style":       trip.Style,
+		"Budget":      trip.Budget,
+	}
+
+	if err := p.requestAI(ctx, "TRIP_OVERVIEW", inputData, &rawResponse); err != nil {
+		return domain.TripOverviewResponse{}, err
+	}
+
+	log.Printf("⏱️ [PERF] TRIP_OVERVIEW Request completed in: %v", time.Since(startTime))
+
+	cleanData := cleanJSON(rawResponse)
+	var resp domain.TripOverviewResponse
+	if err := json.Unmarshal(cleanData, &resp); err != nil {
+		return domain.TripOverviewResponse{}, fmt.Errorf("overview parse error: %w", err)
+	}
+
+	return resp, nil
+}
+
+// GenerateTripItinerary (Phase 2): Detailed schedule generation based on overview context
+func (p *AIPlanner) GenerateTripItinerary(ctx context.Context, trip domain.Trip, overviewJSON string) (domain.ItineraryResponse, error) {
+	startTime := time.Now()
+	log.Printf("⏱️ [PERF] Starting TRIP_ITINERARY AI Request (Phase 2) for %s...", trip.Destination)
+
+	var rawResponse json.RawMessage
+	inputData := map[string]interface{}{
+		"Trip":         trip,
+		"OverviewJSON": overviewJSON,
+	}
+
+	if err := p.requestAI(ctx, "TRIP_ITINERARY", inputData, &rawResponse); err != nil {
+		return domain.ItineraryResponse{}, err
+	}
+
+	log.Printf("⏱️ [PERF] TRIP_ITINERARY Request completed in: %v", time.Since(startTime))
+
+	cleanData := cleanJSON(rawResponse)
+	var resp domain.ItineraryResponse
+	if err := json.Unmarshal(cleanData, &resp); err != nil {
+		return domain.ItineraryResponse{}, fmt.Errorf("itinerary parse error: %w", err)
+	}
+
+	return resp, nil
+}
+
+// GetRegeneratePrompt Generates the text prompt context without calling the AI (For QA/Testing)
+func (p *AIPlanner) GetRegeneratePrompt(ctx context.Context, trip domain.Trip, prefs domain.UserPreferences) (string, error) {
+	// 1. Prepare Constraint Strings
+	var constraints []string
+
+	// Dietary
+	if len(prefs.Dietary) > 0 {
+		constraints = append(constraints, fmt.Sprintf("CRITICAL CONSTRAINT: The user follows these dietary restrictions: %s. All restaurant suggestions MUST strictly follow this.", strings.Join(prefs.Dietary, ", ")))
+	}
+
+	// Pace
+	switch prefs.Pace {
+	case "FAST":
+		constraints = append(constraints, "Pace: High Intensity. Pack as many activities as possible (4-5 per day). Minimize gaps.")
+	case "RELAXED":
+		constraints = append(constraints, "Pace: Relaxed. Limit to 2-3 major activities per day. Allow ample time for leisure and transit.")
+	}
+
+	// Vibe / Interests
+	if len(prefs.Interests) > 0 {
+		constraints = append(constraints, fmt.Sprintf("Vibe Focus: Prioritize activities related to %s.", strings.Join(prefs.Interests, ", ")))
+	}
+
+	// 2. Prepare Context (Trip + DNA + Constraints)
+	tripContext := map[string]interface{}{
+		"Trip":        trip,
+		"Preferences": prefs,
+		"Constraints": strings.Join(constraints, "\n"),
+	}
+
+	// 3. Render System Prompt (Rules & Schema)
+	// We use the same system key as GeneratePlan
+	sysPrompt, err := p.promptSvc.GetRenderedPrompt(ctx, "planner_itinerary_system", tripContext)
+	if err != nil {
+		return "", fmt.Errorf("render prompt error: %w", err)
+	}
+
+	// 4. Return the Final Prompt (System + User Data)
+	userDataBytes, _ := json.Marshal(tripContext)
+	fullPrompt := fmt.Sprintf("--- SYSTEM ---\n%s\n\n--- USER DATA ---\n%s", sysPrompt, string(userDataBytes))
+	return fullPrompt, nil
 }
