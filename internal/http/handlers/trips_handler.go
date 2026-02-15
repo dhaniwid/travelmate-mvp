@@ -155,6 +155,7 @@ func (h *TripHandler) GetTrip(c *gin.Context) {
 	if result.Trip.UserID != "" && result.Trip.UserID != "guest" {
 		userID := c.GetString("user_id")
 		if result.Trip.UserID != userID {
+			fmt.Printf("\n🚨 IDOR BLOCK: TripID=%s | OwnerID=%s | RequestorID=%s\n", id, result.Trip.UserID, userID)
 			c.JSON(http.StatusForbidden, domain.APIError{
 				Code:    "forbidden",
 				Message: "You do not have permission to view this trip",
