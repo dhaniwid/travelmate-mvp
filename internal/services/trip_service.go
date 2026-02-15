@@ -11,6 +11,12 @@ import (
 	"travelmate/internal/repositories"
 )
 
+type SubscriptionServiceInterface interface {
+	CheckQuotaAvailability(ctx context.Context, userID string) (bool, error)
+	IncrementQuota(ctx context.Context, userID string) error
+	GetUserQuota(ctx context.Context, userID, email string) (*domain.TripQuota, error)
+}
+
 type TripService struct {
 	TripRepo       *repositories.TripRepository
 	FeedbackRepo   *repositories.FeedbackRepository
@@ -25,6 +31,7 @@ type TripService struct {
 	ImageSvc       *ImageService
 	PDFSvc         *PDFService
 	EnrichmentSvc  *EnrichmentService
+	SubService     SubscriptionServiceInterface
 }
 
 func NewTripService(
@@ -41,6 +48,7 @@ func NewTripService(
 	imageSvc *ImageService,
 	pdfSvc *PDFService,
 	enrichSvc *EnrichmentService,
+	subS SubscriptionServiceInterface,
 ) *TripService {
 	return &TripService{
 		TripRepo:       tr,
@@ -56,6 +64,7 @@ func NewTripService(
 		ImageSvc:       imageSvc,
 		PDFSvc:         pdfSvc,
 		EnrichmentSvc:  enrichSvc,
+		SubService:     subS,
 	}
 }
 

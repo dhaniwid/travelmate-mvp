@@ -64,7 +64,7 @@ func main() {
 	transportService := services.NewTransportService(transportRepo)
 
 	tripService := services.NewTripService(tripRepo, fbRepo, accommodationRepo, attractionRepo, transportRepo,
-		perfRepo, discoveryRepo, plannerEngine, locationService, transportService, imageSvc, pdfSvc, enrichService)
+		perfRepo, discoveryRepo, plannerEngine, locationService, transportService, imageSvc, pdfSvc, enrichService, subService)
 
 	// 5. Handlers
 	tripHandler := handlers.NewTripHandler(tripService, subService)

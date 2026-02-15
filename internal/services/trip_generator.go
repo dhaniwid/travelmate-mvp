@@ -283,6 +283,17 @@ func (s *TripService) GenerateTripAsync(ctx context.Context, trip domain.Trip) (
 		trip.ID = uuid.New().String()
 	}
 
+	// 🛡️ SECURITY: REDUNDANT QUOTA CHECK (Final Guard before AI)
+	if trip.UserID != "" && trip.UserID != "guest" {
+		allowed, err := s.SubService.CheckQuotaAvailability(ctx, trip.UserID)
+		if err != nil {
+			return nil, fmt.Errorf("quota verification failed: %w", err)
+		}
+		if !allowed {
+			return nil, fmt.Errorf("quota_exceeded: monthly limit reached")
+		}
+	}
+
 	// 2. Resolve Destination (Surprise Me)
 	if strings.EqualFold(trip.Destination, "Surprise") {
 		curatedCities := []string{

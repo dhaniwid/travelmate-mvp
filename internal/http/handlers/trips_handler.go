@@ -150,13 +150,19 @@ func (h *TripHandler) GetTrip(c *gin.Context) {
 		})
 		return
 	}
-	if result == nil {
-		c.JSON(http.StatusNotFound, domain.APIError{
-			Code:    "not_found",
-			Message: "Trip not found",
-		})
-		return
+	// 🛡️ SECURITY: IDOR CHECK
+	// Check if trip owner matches requester
+	if result.Trip.UserID != "" && result.Trip.UserID != "guest" {
+		userID := c.GetString("user_id")
+		if result.Trip.UserID != userID {
+			c.JSON(http.StatusForbidden, domain.APIError{
+				Code:    "forbidden",
+				Message: "You do not have permission to view this trip",
+			})
+			return
+		}
 	}
+
 	c.JSON(http.StatusOK, result)
 }
 
@@ -212,28 +218,29 @@ func (h *TripHandler) SaveTrip(c *gin.Context) {
 		return
 	}
 
-	// Validasi User ID
-	if req.UserID == "" {
-		c.JSON(http.StatusUnauthorized, domain.APIError{Code: "unauthorized", Message: "User ID missing"})
+	// 🛡️ SECURITY: ALWAYS USE AUTHENTICATED USER ID FROM CONTEXT
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, domain.APIError{Code: "unauthorized", Message: "User ID missing from context"})
 		return
 	}
 
 	// Buat object domain trip dummy hanya untuk passing data ke service
 	trip := &domain.Trip{
 		ID:       req.ID,
-		UserID:   req.UserID,
+		UserID:   userID, // Use context userID, not the one from request body
 		PlanData: req.PlanData,
 	}
 
 	// 🛡️ SECURITY: CRITICAL QUOTA CHECK (Fix Bypass)
 	// Check if user has quota BEFORE saving
-	quota, err := h.SubService.GetUserQuota(c.Request.Context(), req.UserID, "")
+	quota, err := h.SubService.GetUserQuota(c.Request.Context(), userID, "")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, domain.APIError{Code: "internal_error", Message: "Quota check failed"})
 		return
 	}
 
-	tripCount, err := h.Service.CountUserTrips(c.Request.Context(), req.UserID)
+	tripCount, err := h.Service.CountUserTrips(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, domain.APIError{Code: "internal_error", Message: "Failed to verify trip count"})
 		return
@@ -263,11 +270,11 @@ func (h *TripHandler) SaveTrip(c *gin.Context) {
 	// 🛡️ SECURITY: INCREMENT QUOTA ON CLAIM
 	// Since guest generation often bypasses the immediate increment (or uses guest bucket),
 	// we must count the trip against the user's permanent quota here.
-	if req.UserID != "guest" {
-		if err := h.SubService.IncrementQuota(c.Request.Context(), req.UserID); err != nil {
-			log.Printf("⚠️ [QUOTA] Failed to increment on claim for %s: %v", req.UserID, err)
+	if userID != "guest" {
+		if err := h.SubService.IncrementQuota(c.Request.Context(), userID); err != nil {
+			log.Printf("⚠️ [QUOTA] Failed to increment on claim for %s: %v", userID, err)
 		} else {
-			log.Printf("📊 [QUOTA] Incremented for %s on trip claim", req.UserID)
+			log.Printf("📊 [QUOTA] Incremented for %s on trip claim", userID)
 		}
 	}
 
@@ -282,9 +289,8 @@ func (h *TripHandler) SaveTrip(c *gin.Context) {
 func (h *TripHandler) DeleteTrip(c *gin.Context) {
 	tripID := c.Param("id")
 
-	// 1. Ambil User ID dari Token/Header (Asumsi kita kirim via Header 'X-User-Id' atau Auth Middleware)
-	userID := c.GetHeader("X-User-ID")
-
+	// 🛡️ SECURITY: ALWAYS USE AUTHENTICATED USER ID FROM CONTEXT (Fix IDOR)
+	userID := c.GetString("user_id")
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, domain.APIError{Code: "unauthorized", Message: "Missing User Context"})
 		return
