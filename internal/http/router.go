@@ -1,6 +1,7 @@
 package http
 
 import (
+	"log"
 	"strings"
 	"time"
 	"travelmate/internal/http/handlers"
@@ -27,7 +28,19 @@ func SetupRouter(
 	r.Use(middleware.JSONLogger())
 
 	// 🛠️ CONFIG CORS
-	origins := strings.Split(allowOrigins, ",")
+	var origins []string
+	if allowOrigins == "" || allowOrigins == "*" {
+		origins = []string{"*"}
+	} else {
+		origins = strings.Split(allowOrigins, ",")
+		for i := range origins {
+			origins[i] = strings.TrimSpace(origins[i])
+		}
+	}
+
+	// Logging allowed origins for Railway debugging
+	log.Println("🌐 CORS Allowed Origins:", origins)
+
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     origins,
 		AllowMethods:     []string{"GET", "POST", "OPTIONS", "PUT", "DELETE"},
