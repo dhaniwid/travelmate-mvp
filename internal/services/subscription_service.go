@@ -280,8 +280,21 @@ func (s *SubscriptionService) CheckQuotaAvailability(ctx context.Context, userID
 	if err != nil {
 		return false, err
 	}
+
+	// 🚨 RESCUE MISSION (Sprint 14): User exists in Clerk but not in our DB.
+	// Auto-create them immediately so they don't get 500 errors during trip generation.
 	if user == nil {
-		return false, fmt.Errorf("user not found") // Should be created by middleware/auth
+		log.Printf("🧬 [LAZY SYNC] User %s not found in DB. Auto-creating as FREE.", userID)
+		user = &domain.User{
+			UserID:             userID,
+			Email:              "", // Optional
+			Name:               "User",
+			SubscriptionTier:   "FREE",
+			SubscriptionStatus: "ACTIVE",
+		}
+		if err := s.UserRepo.UpsertUser(ctx, user); err != nil {
+			return false, fmt.Errorf("failed to auto-create missing user: %w", err)
+		}
 	}
 
 	// 2. If PRO, allow (with lazy expiration check)

@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/clerk/clerk-sdk-go/v2"
-	"github.com/clerk/clerk-sdk-go/v2/jwks"
 	"github.com/clerk/clerk-sdk-go/v2/jwt"
 	"github.com/gin-gonic/gin"
 )
@@ -50,23 +49,24 @@ func AuthMiddleware(secretKey string) gin.HandlerFunc {
 
 		sessionToken := parts[1]
 
-		// 4. Verifikasi Token ke Clerk
-		// CRITICAL: For Custom Domain support in Production, we must point to the custom JWKS endpoint
-		jwksClient := &jwks.Client{
-			Backend: clerk.NewBackend(&clerk.BackendConfig{
-				URL: clerk.String("https://clerk.miru.travel/v1"),
-			}),
-		}
-
+		// 4. Verifikasi Token ke Clerk (Stateless/Offline Verification)
+		// CRITICAL: We use default JWKS fetching (api.clerk.com) to avoid 404 errors on custom domains.
+		// We pass ProxyURL to allow tokens issued by the custom domain.
 		proxyURL := "https://clerk.miru.travel"
 
 		claims, err := jwt.Verify(c.Request.Context(), &jwt.VerifyParams{
-			Token:      sessionToken,
-			JWKSClient: jwksClient, // Custom Domain Fix
-			ProxyURL:   &proxyURL,  // Ensure issuer validation passes for custom domain
+			Token:    sessionToken,
+			ProxyURL: &proxyURL, // Allows custom domain issuer
 		})
 
 		if err != nil {
+			// 🚨 DEBUG: Print exact error to console for troubleshooting
+			tokenPreview := "EMPTY"
+			if len(sessionToken) > 10 {
+				tokenPreview = sessionToken[:10]
+			}
+			fmt.Printf("🚨 AUTH ERROR: %v | Token Preview: %s...\n", err, tokenPreview)
+
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"code":    "unauthorized",
 				"message": "Invalid or expired token",
