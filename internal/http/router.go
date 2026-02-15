@@ -18,6 +18,7 @@ func SetupRouter(
 	webhookHandler *handlers.WebhookHandler,
 	discoveryHandler *handlers.DiscoveryHandler,
 	prefHandler *handlers.PreferencesHandler,
+	analyticsHandler *handlers.AnalyticsHandler,
 	allowOrigins string,
 ) *gin.Engine {
 
@@ -98,6 +99,10 @@ func SetupRouter(
 				// 5. User Preferences (Travel DNA) 🧬
 				protected.GET("/user/preferences", prefHandler.GetPreferences)
 				protected.PUT("/user/preferences", prefHandler.UpdatePreferences)
+
+				// 6. Analytics & Impact 📈
+				protected.POST("/analytics/events", analyticsHandler.TrackEvent)
+				protected.GET("/analytics/impact", analyticsHandler.GetImpactStats)
 			}
 		}
 	}

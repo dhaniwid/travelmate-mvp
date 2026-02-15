@@ -35,7 +35,8 @@ func main() {
 	userRepo := repositories.NewUserRepository(database)
 	subRepo := repositories.NewSubscriptionRepository(database)
 	prefRepo := repositories.NewPreferencesRepository(database)
-	placeLibRepo := repositories.NewPlaceLibraryRepository(database) // NEW
+	placeLibRepo := repositories.NewPlaceLibraryRepository(database)
+	analyticsRepo := repositories.NewAnalyticsRepository(database) // NEW
 
 	// 4. Services (Dependency Injection)
 	promptService := services.NewPromptService(database)
@@ -47,6 +48,7 @@ func main() {
 
 	subService := services.NewSubscriptionService(userRepo, subRepo, stripeClient)
 	discoveryService := services.NewDiscoveryService(destRepo)
+	analyticsService := services.NewAnalyticsService(analyticsRepo) // NEW
 
 	var plannerEngine services.PlannerEngine
 	if cfg.OpenAIKey != "" {
@@ -73,9 +75,10 @@ func main() {
 	webhookHandler := handlers.NewWebhookHandler(subService, stripeClient)
 	discoveryHandler := handlers.NewDiscoveryHandler(discoveryService)
 	prefHandler := handlers.NewPreferencesHandler(prefRepo)
+	analyticsHandler := handlers.NewAnalyticsHandler(analyticsService) // NEW
 
 	// 6. Router
-	r := http.SetupRouter(tripHandler, fbHandler, subHandler, webhookHandler, discoveryHandler, prefHandler, cfg.AllowOrigins)
+	r := http.SetupRouter(tripHandler, fbHandler, subHandler, webhookHandler, discoveryHandler, prefHandler, analyticsHandler, cfg.AllowOrigins)
 
 	// 7. Run
 	log.Printf("Server running on port %s", cfg.Port)
