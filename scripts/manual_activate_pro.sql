@@ -9,7 +9,7 @@ SET
     subscription_started_at = NOW(),
     subscription_ends_at = NOW() + INTERVAL '30 days',
     updated_at = NOW()
-WHERE email = 'user@example.com';
+WHERE id = 1;
 
 -- Verification Query
 SELECT email, subscription_tier, subscription_status, subscription_ends_at 

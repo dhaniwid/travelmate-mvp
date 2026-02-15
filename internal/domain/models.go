@@ -464,3 +464,15 @@ type SubscriptionEvent struct {
 	Metadata      string    `json:"metadata"` // JSON string
 	CreatedAt     time.Time `json:"created_at"`
 }
+
+// ==========================================
+// 8. ANALYTICS & CONVERSION
+// ==========================================
+
+type AnalyticsEvent struct {
+	ID        string                 `json:"id"`
+	UserID    string                 `json:"user_id"`
+	EventType string                 `json:"event_type"`
+	EventData map[string]interface{} `json:"event_data"`
+	CreatedAt time.Time              `json:"created_at"`
+}
