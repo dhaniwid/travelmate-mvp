@@ -78,7 +78,7 @@ func main() {
 	analyticsHandler := handlers.NewAnalyticsHandler(analyticsService) // NEW
 
 	// 6. Router
-	r := http.SetupRouter(tripHandler, fbHandler, subHandler, webhookHandler, discoveryHandler, prefHandler, analyticsHandler, cfg.AllowOrigins)
+	r := http.SetupRouter(tripHandler, fbHandler, subHandler, webhookHandler, discoveryHandler, prefHandler, analyticsHandler, cfg.AllowOrigins, cfg.ClerkSecretKey)
 
 	// 7. Run
 	log.Printf("Server running on port %s", cfg.Port)

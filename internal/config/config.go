@@ -16,6 +16,7 @@ type Config struct {
 	GoogleCXId       string
 	StripeSecretKey  string
 	StripeWebhookKey string
+	ClerkSecretKey   string
 }
 
 func LoadConfig() *Config {
@@ -36,6 +37,7 @@ func LoadConfig() *Config {
 		GoogleCXId:       os.Getenv("GOOGLE_CX_ID"),
 		StripeSecretKey:  os.Getenv("STRIPE_SECRET_KEY"),
 		StripeWebhookKey: os.Getenv("STRIPE_WEBHOOK_SECRET"),
+		ClerkSecretKey:   os.Getenv("CLERK_SECRET_KEY"),
 	}
 }
 

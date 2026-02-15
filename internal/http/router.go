@@ -20,6 +20,7 @@ func SetupRouter(
 	prefHandler *handlers.PreferencesHandler,
 	analyticsHandler *handlers.AnalyticsHandler,
 	allowOrigins string,
+	clerkKey string,
 ) *gin.Engine {
 
 	r := gin.New()
@@ -79,11 +80,10 @@ func SetupRouter(
 			// 4. Webhooks (Public)
 			api.POST("/webhooks/stripe", webhookHandler.HandleStripeWebhook)
 
-			// ============================================================
 			// 🔒 PROTECTED ROUTES (Requires Clerk Authentication)
 			// ============================================================
 			protected := v1.Group("/")
-			protected.Use(middleware.AuthMiddleware())
+			protected.Use(middleware.AuthMiddleware(clerkKey))
 			{
 				protected.GET("/trips", tripHandler.ListTrips)
 				protected.POST("/trips/save", tripHandler.SaveTrip)
