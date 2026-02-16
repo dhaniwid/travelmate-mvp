@@ -538,6 +538,21 @@ func (h *TripHandler) AddActivity(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": updatedPlan})
 }
 
+// GetAddActivitySuggestions handles GET /api/v1/trips/:id/suggestions/:day_index?time=HH:MM
+func (h *TripHandler) GetAddActivitySuggestions(c *gin.Context) {
+	tripID := c.Param("id")
+	dayIdx, _ := strconv.Atoi(c.Param("day_index"))
+	timeStr := c.Query("time")
+
+	suggestions, err := h.Service.GetAddActivitySuggestions(c.Request.Context(), tripID, dayIdx, timeStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, domain.APIError{Code: "internal_error", Message: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": suggestions})
+}
+
 // DeleteActivity handles DELETE /api/v1/trips/:id/activities/:day_index/:activity_index
 func (h *TripHandler) DeleteActivity(c *gin.Context) {
 	tripID := c.Param("id")

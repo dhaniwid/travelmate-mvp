@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -261,7 +262,7 @@ func (s *TripService) GetActivityAlternatives(ctx context.Context, dest, activit
 	return s.Planner.GenerateAlternatives(ctx, dest, activity, location, tags)
 }
 
-// GetActivityAlternativesByIndex (M-128): Optimized index-based replacement
+// GetActivityAlternativesByIndex (M-128): Optimized index-based replacement with persistent caching
 func (s *TripService) GetActivityAlternativesByIndex(ctx context.Context, tripID string, dayIdx, actIdx int) ([]domain.ActivityAlternative, error) {
 	// 1. Fetch Trip
 	tripAndPlan, err := s.TripRepo.GetTripWithPlan(ctx, tripID)
@@ -272,7 +273,21 @@ func (s *TripService) GetActivityAlternativesByIndex(ctx context.Context, tripID
 		return nil, fmt.Errorf("trip not found")
 	}
 
-	// 2. SAFETY: Validate Indices (Panic Protection)
+	// 2. CHECK CACHE (M-128 Persistent Cache)
+	// We key by day_X_idx_Y to prevent redundant AI calls for the same activity slot
+	cacheKey := fmt.Sprintf("day%d_idx%d", dayIdx+1, actIdx)
+	var suggestionsCache map[string][]domain.ActivityAlternative
+
+	if len(tripAndPlan.Trip.SuggestionsCache) > 0 {
+		if err := json.Unmarshal(tripAndPlan.Trip.SuggestionsCache, &suggestionsCache); err == nil {
+			if cachedAlts, ok := suggestionsCache[cacheKey]; ok && len(cachedAlts) > 0 {
+				log.Printf("🎯 [CACHE HIT] Returning cached alternatives for trip %s, key %s", tripID, cacheKey)
+				return cachedAlts, nil
+			}
+		}
+	}
+
+	// 3. SAFETY: Validate Indices (Panic Protection)
 	if dayIdx < 0 || dayIdx >= len(tripAndPlan.Plan.Itinerary) {
 		return nil, fmt.Errorf("invalid day index: %d", dayIdx)
 	}
@@ -283,9 +298,27 @@ func (s *TripService) GetActivityAlternativesByIndex(ctx context.Context, tripID
 
 	activity := day.Activities[actIdx]
 
-	// 3. Call AI with specific context
+	// 4. Call AI with specific context
 	tags := []string{activity.Type}
-	return s.Planner.GenerateActivityReplacement(ctx, tripAndPlan.Trip.Destination, activity.Activity, tags)
+	alts, err := s.Planner.GenerateActivityReplacement(ctx, tripAndPlan.Trip.Destination, activity.Activity, tags)
+	if err != nil {
+		return nil, err
+	}
+
+	// 5. UPDATE CACHE & SAVE
+	if suggestionsCache == nil {
+		suggestionsCache = make(map[string][]domain.ActivityAlternative)
+	}
+	suggestionsCache[cacheKey] = alts
+	cacheJSON, _ := json.Marshal(suggestionsCache)
+	tripAndPlan.Trip.SuggestionsCache = cacheJSON
+
+	// Save back to DB (Persistent)
+	if err := s.TripRepo.SaveTripPlan(ctx, tripAndPlan.Trip, tripAndPlan.Plan); err != nil {
+		log.Printf("⚠️ [CACHE] Failed to save updated suggestions_cache for trip %s: %v", tripID, err)
+	}
+
+	return alts, nil
 }
 
 // SwapActivity (M-128): Persistent activity swap via index
@@ -328,6 +361,99 @@ func (s *TripService) SwapActivity(ctx context.Context, tripID string, dayIdx, a
 	return s.TripRepo.SaveTripPlan(ctx, tripAndPlan.Trip, tripAndPlan.Plan)
 }
 
+// GetAddActivitySuggestions (M-128): AI-powered activity suggestions based on time of day
+func (s *TripService) GetAddActivitySuggestions(ctx context.Context, tripID string, dayIdx int, timeStr string) ([]domain.ActivityAlternative, error) {
+	// 1. Fetch Trip
+	tripAndPlan, err := s.TripRepo.GetTripWithPlan(ctx, tripID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch trip: %w", err)
+	}
+	if tripAndPlan == nil {
+		return nil, fmt.Errorf("trip not found")
+	}
+
+	// 2. Determine Bucket
+	hour := 10 // Default
+	parts := strings.Split(timeStr, ":")
+	if len(parts) > 0 {
+		h, err := strconv.Atoi(parts[0])
+		if err == nil {
+			hour = h
+		}
+	}
+
+	bucket := "morning"
+	if hour >= 5 && hour < 11 {
+		bucket = "morning"
+	} else if hour >= 11 && hour < 15 {
+		bucket = "lunch"
+	} else if hour >= 15 && hour < 18 {
+		bucket = "afternoon"
+	} else if hour >= 18 && hour < 22 {
+		bucket = "dinner"
+	} else {
+		bucket = "night"
+	}
+
+	// Key using day number (1-based for readability) and bucket
+	cacheKey := fmt.Sprintf("day%d_%s", dayIdx+1, bucket)
+	var suggestionsCache map[string][]domain.ActivityAlternative
+
+	// 3. Check Cache (Persistent M-128)
+	if len(tripAndPlan.Trip.SuggestionsCache) > 0 {
+		if err := json.Unmarshal(tripAndPlan.Trip.SuggestionsCache, &suggestionsCache); err == nil {
+			if cached, ok := suggestionsCache[cacheKey]; ok && len(cached) > 0 {
+				// Safety Check: If ANY cached activity title is empty, ignore cache
+				allValid := true
+				for _, c := range cached {
+					if c.Activity == "" {
+						allValid = false
+						break
+					}
+				}
+				if allValid {
+					log.Printf("🎯 [CACHE HIT] Suggestions for %s: %s", tripID, cacheKey)
+					return cached, nil
+				}
+				log.Printf("⚠️ [CACHE IGNORE] Found empty titles in cache for %s: %s. Re-generating...", tripID, cacheKey)
+			}
+		}
+	}
+
+	// 4. AI Generate
+	style := tripAndPlan.Trip.Style
+	if style == "" {
+		style = "relaxing"
+	}
+
+	alts, err := s.Planner.GenerateAddActivitySuggestions(ctx, tripAndPlan.Trip.Destination, style, bucket, timeStr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Safety Check for AI Output
+	if len(alts) > 0 && alts[0].Activity == "" {
+		log.Printf("❌ [AI ERROR] AI returned empty titles for %s. Check prompts.", tripID)
+	} else {
+		log.Printf("🤖 [AI GEN] Generated %d suggestions for %s", len(alts), tripID)
+	}
+
+	// 5. Save Cache
+	if suggestionsCache == nil {
+		suggestionsCache = make(map[string][]domain.ActivityAlternative)
+	}
+	suggestionsCache[cacheKey] = alts
+	cacheJSON, _ := json.Marshal(suggestionsCache)
+	tripAndPlan.Trip.SuggestionsCache = cacheJSON
+
+	// Use SaveTripPlan to persist the updated SuggestionsCache
+	if err := s.TripRepo.SaveTripPlan(ctx, tripAndPlan.Trip, tripAndPlan.Plan); err != nil {
+		log.Printf("⚠️ [CACHE] Failed to save suggestions: %v", err)
+	}
+
+	return alts, nil
+}
+
 // AddActivity (M-128): Add a new activity to the itinerary
 func (s *TripService) AddActivity(ctx context.Context, tripID string, dayIdx int, title, time string, autoEnhance bool) (*domain.TripPlan, error) {
 	// 1. Fetch Trip
@@ -357,14 +483,20 @@ func (s *TripService) AddActivity(ctx context.Context, tripID string, dayIdx int
 
 	// 4. Optional AI Enhancement
 	if autoEnhance {
+		log.Printf("✨ [MIRU MAGIC] Enhancing activity: %s in %s", title, tripAndPlan.Trip.Destination)
 		enhanced, err := s.Planner.EnhanceActivity(ctx, tripAndPlan.Trip.Destination, title)
-		if err == nil && enhanced != nil {
+		if err != nil {
+			log.Printf("⚠️ [MIRU MAGIC] Enhancement failed: %v", err)
+		} else if enhanced != nil {
+			log.Printf("✅ [MIRU MAGIC] Enrichment successful for: %s", title)
 			newActivity.Description = enhanced.Description
 			newActivity.PlaceName = enhanced.PlaceName
 			newActivity.Type = enhanced.Type
 			newActivity.Latitude = enhanced.Latitude
 			newActivity.Longitude = enhanced.Longitude
 		}
+	} else {
+		log.Printf("📝 [ADD ACTIVITY] Adding skeleton: %s", title)
 	}
 
 	// 5. Append and Sort by Time

@@ -25,5 +25,6 @@ type PlannerEngine interface {
 	GenerateTripLogistics(ctx context.Context, trip domain.Trip) (domain.TripLogisticsResponse, error)
 	GenerateTripOverview(ctx context.Context, trip domain.Trip) (domain.TripOverviewResponse, error)
 	GenerateTripItinerary(ctx context.Context, trip domain.Trip, overviewJSON string) (domain.ItineraryResponse, error)
+	GenerateAddActivitySuggestions(ctx context.Context, destination, style, bucket, time string) ([]domain.ActivityAlternative, error)
 	GetRegeneratePrompt(ctx context.Context, trip domain.Trip, prefs domain.UserPreferences) (string, error)
 }

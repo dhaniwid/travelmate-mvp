@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"reflect"
 	"strings"
 	"time"
 	"travelmate/internal/domain"
@@ -63,6 +64,60 @@ func (p *AIPlanner) GetDiscoveryInfo(ctx context.Context, city string) (*domain.
 	}
 
 	return &resp, nil
+}
+
+// EnhanceActivity (M-128): AI-powered enrichment for a single activity
+func (p *AIPlanner) EnhanceActivity(ctx context.Context, destination, title string) (*domain.Activity, error) {
+	inputData := map[string]string{
+		"Destination": destination,
+		"Title":       title,
+	}
+
+	var rawResponse json.RawMessage
+	if err := p.requestAI(ctx, "activity_enrichment", inputData, &rawResponse); err != nil {
+		return nil, err
+	}
+
+	cleanData := cleanJSON(rawResponse)
+	var result struct {
+		Description  string   `json:"description"`
+		PlaceName    string   `json:"place_name"`
+		Latitude     *float64 `json:"latitude"`
+		Longitude    *float64 `json:"longitude"`
+		Category     string   `json:"category"`
+		LocationType string   `json:"location_type"`
+	}
+
+	if err := json.Unmarshal(cleanData, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse AI enhancement: %w", err)
+	}
+
+	return &domain.Activity{
+		Activity:     title,
+		Description:  result.Description,
+		PlaceName:    result.PlaceName,
+		Type:         strings.Title(strings.ToLower(result.Category)),
+		Latitude:     result.Latitude,
+		Longitude:    result.Longitude,
+		LocationType: result.LocationType,
+	}, nil
+}
+
+// GenerateAddActivitySuggestions (M-128): Suggest activities for a specific bucket
+func (p *AIPlanner) GenerateAddActivitySuggestions(ctx context.Context, destination, style, bucket, time string) ([]domain.ActivityAlternative, error) {
+	inputData := map[string]string{
+		"Destination": destination,
+		"Style":       style,
+		"Bucket":      bucket,
+		"Time":        time,
+	}
+
+	var rawResponse json.RawMessage
+	if err := p.requestAI(ctx, "add_activity_suggestions", inputData, &rawResponse); err != nil {
+		return nil, err
+	}
+
+	return p.parseAlternatives(rawResponse)
 }
 
 // GenerateOnlyItinerary Fitur "Plan Itinerary"
@@ -164,13 +219,12 @@ func (p *AIPlanner) GenerateAlternatives(ctx context.Context, dest, activity, lo
 	}
 
 	// 2. Request AI
-	var alternatives []domain.ActivityAlternative
-
-	if err := p.requestAI(ctx, "planner_alternatives_system", inputData, &alternatives); err != nil {
+	var rawResponse json.RawMessage
+	if err := p.requestAI(ctx, "planner_alternatives_system", inputData, &rawResponse); err != nil {
 		return nil, fmt.Errorf("failed to generate alternatives: %w", err)
 	}
 
-	return alternatives, nil
+	return p.parseAlternatives(rawResponse)
 }
 
 // GenerateActivityReplacement (M-128): High-speed alternative generation
@@ -183,9 +237,14 @@ func (p *AIPlanner) GenerateActivityReplacement(ctx context.Context, dest, activ
 	}
 
 	// 2. Request AI with optimized "alternatives" system prompt
-	var alternatives []domain.ActivityAlternative
-	if err := p.requestAI(ctx, "planner_alternatives_system", inputData, &alternatives); err != nil {
+	var rawResponse json.RawMessage
+	if err := p.requestAI(ctx, "planner_alternatives_system", inputData, &rawResponse); err != nil {
 		return nil, fmt.Errorf("AI replacement failed: %w", err)
+	}
+
+	alternatives, err := p.parseAlternatives(rawResponse)
+	if err != nil {
+		return nil, err
 	}
 
 	// 3. Ensure we only return 3 alternatives (Speed & UI constraint)
@@ -194,6 +253,82 @@ func (p *AIPlanner) GenerateActivityReplacement(ctx context.Context, dest, activ
 	}
 
 	return alternatives, nil
+}
+
+// --- AI PARSING HELPERS (M-128) ---
+
+type aiAlt struct {
+	Activity     string `json:"activity"`
+	Title        string `json:"title"`
+	ActivityType string `json:"activity_type"`
+	Type         string `json:"type"`
+	Category     string `json:"category"`
+	Description  string `json:"description"`
+	PlaceName    string `json:"place_name"`
+}
+
+type aiWrapper struct {
+	Alternatives []aiAlt `json:"alternatives"`
+	Suggestions  []aiAlt `json:"suggestions"`
+	Activities   []aiAlt `json:"activities"`
+}
+
+// parseAlternatives (M-128): Robust parser to handle AI output variations
+func (p *AIPlanner) parseAlternatives(raw []byte) ([]domain.ActivityAlternative, error) {
+	cleanData := cleanJSON(raw)
+
+	// Try unmarshaling as direct Array (standard for "PURE JSON ARRAY" prompts)
+	var directArray []aiAlt
+	if err := json.Unmarshal(cleanData, &directArray); err == nil && len(directArray) > 0 {
+		return p.mapToDomainAlternatives(directArray), nil
+	}
+
+	// Fallback: Try unmarshaling as Wrapper Object
+	var wrapper aiWrapper
+	if err := json.Unmarshal(cleanData, &wrapper); err == nil {
+		if len(wrapper.Alternatives) > 0 {
+			return p.mapToDomainAlternatives(wrapper.Alternatives), nil
+		}
+		if len(wrapper.Suggestions) > 0 {
+			return p.mapToDomainAlternatives(wrapper.Suggestions), nil
+		}
+		if len(wrapper.Activities) > 0 {
+			return p.mapToDomainAlternatives(wrapper.Activities), nil
+		}
+	}
+
+	return nil, fmt.Errorf("json syntax error: could not parse alternatives from AI response (Raw: %s)", string(cleanData))
+}
+
+func (p *AIPlanner) mapToDomainAlternatives(rawAlts []aiAlt) []domain.ActivityAlternative {
+	domainAlts := make([]domain.ActivityAlternative, len(rawAlts))
+	for i, r := range rawAlts {
+		// 1. Title/Activity Mapping
+		title := r.Activity
+		if title == "" {
+			title = r.Title
+		}
+		if title == "" {
+			title = r.PlaceName
+		}
+
+		// 2. Type/Category Mapping
+		aType := r.Type
+		if aType == "" {
+			aType = r.Category
+		}
+		if aType == "" {
+			aType = r.ActivityType
+		}
+
+		domainAlts[i] = domain.ActivityAlternative{
+			Activity:    title,
+			Type:        strings.Title(strings.ToLower(aType)),
+			Description: r.Description,
+			PlaceName:   r.PlaceName,
+		}
+	}
+	return domainAlts
 }
 
 // GeneratePackingList Membuat daftar bawaan cerdas berdasarkan destinasi, durasi, dan style trip
@@ -270,64 +405,6 @@ func (p *AIPlanner) GeneratePlan(ctx context.Context, trip domain.Trip) (domain.
 	// For now, return what we got.
 
 	return plan, nil
-}
-
-// EnhanceActivity (M-128): AI-powered metadata generation for added activities
-func (p *AIPlanner) EnhanceActivity(ctx context.Context, dest, title string) (*domain.Activity, error) {
-	prompt := fmt.Sprintf(`
-		Context: Traveler in %s.
-		Activity: %s
-		
-		Generate:
-		1. Captivating description.
-		2. Specific place name.
-		3. Category (sightseeing, culinary, shopping, leisure, adventure).
-		4. Latitude/Longitude.
-		
-		Return JSON:
-		{
-			"description": "string",
-			"place_name": "string",
-			"category": "string",
-			"latitude": number,
-			"longitude": number,
-			"location_type": "specific|generic"
-		}
-	`, dest, title)
-
-	resp, err := p.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: openai.GPT4oMini,
-		Messages: []openai.ChatCompletionMessage{
-			{Role: openai.ChatMessageRoleUser, Content: prompt},
-		},
-		ResponseFormat: &openai.ChatCompletionResponseFormat{Type: openai.ChatCompletionResponseFormatTypeJSONObject},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	var result struct {
-		Description  string  `json:"description"`
-		PlaceName    string  `json:"place_name"`
-		Category     string  `json:"category"`
-		Latitude     float64 `json:"latitude"`
-		Longitude    float64 `json:"longitude"`
-		LocationType string  `json:"location_type"`
-	}
-	if err := json.Unmarshal([]byte(resp.Choices[0].Message.Content), &result); err != nil {
-		return nil, err
-	}
-
-	return &domain.Activity{
-		Activity:     title,
-		Description:  result.Description,
-		PlaceName:    result.PlaceName,
-		Type:         strings.Title(result.Category),
-		Latitude:     &result.Latitude,
-		Longitude:    &result.Longitude,
-		LocationType: result.LocationType,
-		IsSkeleton:   false,
-	}, nil
 }
 
 // RefineItinerary Modifies an existing itinerary based on user instruction (Chat Agent)
@@ -461,34 +538,37 @@ func (s *AIPlanner) generateMockPlan(req domain.Trip, _ []domain.TransportOption
 
 // requestAI adalah fungsi TUNGGAL untuk menangani komunikasi ke OpenAI.
 func (p *AIPlanner) requestAI(ctx context.Context, sysKey string, data interface{}, target interface{}) error {
-	// 1. Render System Prompt (Rules & Schema)
+	// ... (prompt rendering)
 	sysPrompt, err := p.promptSvc.GetRenderedPrompt(ctx, sysKey, data)
 	if err != nil {
 		return fmt.Errorf("render prompt error [%s]: %w", sysKey, err)
 	}
 
-	// 2. Prepare User Content (Data Trip Explicit)
-	userDataBytes, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal user data: %w", err)
-	}
+	userDataBytes, _ := json.Marshal(data)
 	userContent := fmt.Sprintf("Here is the trip context data:\n%s", string(userDataBytes))
 
-	// 🔍 PERFORMANCE DEBUG
-	// log.Printf("📊 [AI-PAYLOAD] System: %s | UserContent Size: %d bytes", sysKey, len(userContent))
+	// Dynamically determine ResponseFormat:
+	// JSON_OBJECT mode only supports Objects ({...}). It fails for Arrays ([...]).
+	// If the target is a slice pointer, we MUST use nil/Text format to allow arrays.
+	var respFormat *openai.ChatCompletionResponseFormat
+	targetVal := reflect.ValueOf(target)
+	if targetVal.Kind() == reflect.Ptr && targetVal.Elem().Kind() == reflect.Slice {
+		// Target is a slice (e.g. *[]domain.ActivityAlternative).
+		// We allow Text/nil format so the model can return a direct array [...].
+		respFormat = nil
+	} else {
+		// Default to JSON_OBJECT for structural safety if target is a struct/object.
+		respFormat = &openai.ChatCompletionResponseFormat{Type: openai.ChatCompletionResponseFormatTypeJSONObject}
+	}
 
-	// 3. Call OpenAI (Multi-role Messages)
 	resp, err := p.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: "gpt-4o-mini",
 		Messages: []openai.ChatCompletionMessage{
-			// Role System: Menjelaskan SIAPA dia dan FORMAT apa yang diminta
 			{Role: openai.ChatMessageRoleSystem, Content: sysPrompt},
-
-			// Role User: Memberikan DATA KONTEKS spesifik
 			{Role: openai.ChatMessageRoleUser, Content: userContent},
 		},
 		Temperature:    0.7,
-		ResponseFormat: &openai.ChatCompletionResponseFormat{Type: openai.ChatCompletionResponseFormatTypeJSONObject},
+		ResponseFormat: respFormat,
 	})
 
 	if err != nil {
@@ -499,15 +579,10 @@ func (p *AIPlanner) requestAI(ctx context.Context, sysKey string, data interface
 		return fmt.Errorf("openai returned empty choices")
 	}
 
-	// 4. Processing Response
 	rawContent := resp.Choices[0].Message.Content
 	cleanContent := cleanJSON([]byte(rawContent))
 
-	// Step 1: Log the Raw AI Response for Debugging
-	// log.Printf("📥 [AI-RESPONSE] System: %s | Length: %d chars", sysKey, len(cleanContent))
-
 	if err := json.Unmarshal(cleanContent, target); err != nil {
-		// Log content jika error syntax, biar mudah debug
 		fmt.Printf("❌ JSON Syntax Error for [%s]. \nContent: %s\n", sysKey, cleanContent)
 		return fmt.Errorf("json syntax error: %w", err)
 	}

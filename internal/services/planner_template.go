@@ -374,6 +374,15 @@ func (t *TemplatePlanner) GenerateTripItinerary(ctx context.Context, trip domain
 	return t.GenerateOnlyItinerary(ctx, trip)
 }
 
+// GenerateAddActivitySuggestions (Stub)
+func (t *TemplatePlanner) GenerateAddActivitySuggestions(ctx context.Context, destination, style, bucket, time string) ([]domain.ActivityAlternative, error) {
+	return []domain.ActivityAlternative{
+		{Activity: "Morning Market Visit (Template)", Type: "Culinary"},
+		{Activity: "Temple Photo Op (Template)", Type: "Sightseeing"},
+		{Activity: "Hidden Alley Cafe (Template)", Type: "Leisure"},
+	}, nil
+}
+
 // GetRegeneratePrompt (Stub)
 func (t *TemplatePlanner) GetRegeneratePrompt(ctx context.Context, trip domain.Trip, prefs domain.UserPreferences) (string, error) {
 	return "TEMPLATE MODE: No dynamic AI prompt generated.", nil

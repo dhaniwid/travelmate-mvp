@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -14,23 +15,24 @@ type Coordinates struct {
 // ==========================================
 
 type Trip struct {
-	ID               string    `json:"id"`
-	UserID           string    `json:"user_id"` // ID dari Clerk
-	LocationID       string    `json:"location_id"`
-	Origin           string    `json:"origin"`
-	Destination      string    `json:"destination"`
-	StartDate        string    `json:"start_date"` // YYYY-MM-DD
-	TripDays         int       `json:"trip_days"`
-	Style            string    `json:"style"`        // relaxed, fast, cultural
-	BudgetRange      string    `json:"budget_range"` // e.g. "2.8-3.2jt"
-	Budget           int64     `json:"budget"`       // Changed to int64 for consistency
-	IsPublic         bool      `json:"is_public" db:"is_public"`
-	CreatedAt        time.Time `json:"created_at"`
-	PlanData         *TripPlan `json:"plan_data,omitempty" db:"plan_data"`
-	Status           string    `json:"status"`            // "DRAFT", "UPCOMING", "COMPLETED"
-	EnrichmentStatus string    `json:"enrichment_status"` // "pending", "enriching", "completed"
-	ItineraryStatus  string    `json:"itinerary_status"`  // "pending", "generating", "completed"
-	AIEditsUsed      int       `json:"ai_edits_used" db:"ai_edits_used"`
+	ID               string          `json:"id"`
+	UserID           string          `json:"user_id"` // ID dari Clerk
+	LocationID       string          `json:"location_id"`
+	Origin           string          `json:"origin"`
+	Destination      string          `json:"destination"`
+	StartDate        string          `json:"start_date"` // YYYY-MM-DD
+	TripDays         int             `json:"trip_days"`
+	Style            string          `json:"style"`        // relaxed, fast, cultural
+	BudgetRange      string          `json:"budget_range"` // e.g. "2.8-3.2jt"
+	Budget           int64           `json:"budget"`       // Changed to int64 for consistency
+	IsPublic         bool            `json:"is_public" db:"is_public"`
+	CreatedAt        time.Time       `json:"created_at"`
+	PlanData         *TripPlan       `json:"plan_data,omitempty" db:"plan_data"`
+	Status           string          `json:"status"`            // "DRAFT", "UPCOMING", "COMPLETED"
+	EnrichmentStatus string          `json:"enrichment_status"` // "pending", "enriching", "completed"
+	ItineraryStatus  string          `json:"itinerary_status"`  // "pending", "generating", "completed"
+	AIEditsUsed      int             `json:"ai_edits_used" db:"ai_edits_used"`
+	SuggestionsCache json.RawMessage `json:"suggestions_cache,omitempty" db:"suggestions_cache"`
 }
 
 const (

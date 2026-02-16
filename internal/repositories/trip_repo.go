@@ -67,7 +67,7 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
         SELECT 
             id, user_id, location_id, destination, origin, 
             start_date, trip_days, style, budget, budget_range, 
-            is_public, created_at, plan_data, status, enrichment_status, itinerary_status, ai_edits_used
+            is_public, created_at, plan_data, status, enrichment_status, itinerary_status, ai_edits_used, suggestions_cache
         FROM trips
         WHERE id = $1
     `
@@ -99,6 +99,7 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 		&enrichmentStatus,
 		&itineraryStatus,
 		&trip.AIEditsUsed,
+		&trip.SuggestionsCache,
 	)
 
 	if err == sql.ErrNoRows {
@@ -257,9 +258,9 @@ func (r *TripRepository) SaveTripPlan(ctx context.Context, trip domain.Trip, pla
 	// maka plan_data-nya terupdate.
 	query := `
         INSERT INTO trips (
-            id, user_id, location_id, origin, destination, start_date, trip_days, style, budget, plan_data, enrichment_status, itinerary_status, ai_edits_used, created_at
+            id, user_id, location_id, origin, destination, start_date, trip_days, style, budget, plan_data, enrichment_status, itinerary_status, ai_edits_used, suggestions_cache, created_at
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, CURRENT_TIMESTAMP
         )
         ON CONFLICT (id) DO UPDATE SET 
             plan_data = EXCLUDED.plan_data,
@@ -267,12 +268,14 @@ func (r *TripRepository) SaveTripPlan(ctx context.Context, trip domain.Trip, pla
             enrichment_status = EXCLUDED.enrichment_status,
             itinerary_status = EXCLUDED.itinerary_status,
             ai_edits_used = EXCLUDED.ai_edits_used,
+            suggestions_cache = EXCLUDED.suggestions_cache,
             user_id = COALESCE(NULLIF(EXCLUDED.user_id, ''), trips.user_id)
     `
 
 	_, err = r.DB.ExecContext(ctx, query,
 		trip.ID, trip.UserID, trip.LocationID, trip.Origin, trip.Destination,
-		trip.StartDate, trip.TripDays, trip.Style, trip.Budget, planJson, trip.EnrichmentStatus, trip.ItineraryStatus, trip.AIEditsUsed)
+		trip.StartDate, trip.TripDays, trip.Style, trip.Budget, planJson,
+		trip.EnrichmentStatus, trip.ItineraryStatus, trip.AIEditsUsed, trip.SuggestionsCache)
 
 	return err
 }
@@ -338,11 +341,11 @@ func (r *TripRepository) Create(ctx context.Context, trip *domain.Trip) error {
 		INSERT INTO trips (
 			id, user_id, location_id, destination, origin, 
 			start_date, trip_days, style, budget, budget_range, 
-			plan_data, enrichment_status, itinerary_status, ai_edits_used, created_at
+			plan_data, enrichment_status, itinerary_status, ai_edits_used, suggestions_cache, created_at
 		) VALUES (
 			$1, $2, $3, $4, $5, 
 			$6, $7, $8, $9, $10, 
-			$11, $12, $13, $14, NOW()
+			$11, $12, $13, $14, $15, NOW()
 		)
 	`
 	log.Printf("DEBUG REPO CREATE: Trip %s EnrichmentStatus: '%s'", trip.ID, trip.EnrichmentStatus)
@@ -362,6 +365,7 @@ func (r *TripRepository) Create(ctx context.Context, trip *domain.Trip) error {
 		trip.EnrichmentStatus, // $12
 		trip.ItineraryStatus,  // $13
 		trip.AIEditsUsed,      // $14
+		trip.SuggestionsCache, // $15
 	)
 
 	if err != nil {
@@ -396,7 +400,7 @@ func (r *TripRepository) GetByID(ctx context.Context, id string) (*domain.Trip, 
         SELECT 
             id, user_id, location_id, destination, origin, 
             start_date, trip_days, style, budget, budget_range, 
-            is_public, created_at, status, enrichment_status, itinerary_status, ai_edits_used
+            is_public, created_at, status, enrichment_status, itinerary_status, ai_edits_used, suggestions_cache
         FROM trips
         WHERE id = $1
     `
@@ -422,6 +426,7 @@ func (r *TripRepository) GetByID(ctx context.Context, id string) (*domain.Trip, 
 		&enrichmentStatus,
 		&itineraryStatus,
 		&trip.AIEditsUsed,
+		&trip.SuggestionsCache,
 	)
 
 	if err == sql.ErrNoRows {

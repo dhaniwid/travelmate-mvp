@@ -74,3 +74,34 @@ OUTPUT SCHEMA (JSON Merge):
 }',
 description = 'Stage 2: Descriptions, Briefings & Enhanced Highlights (Sprint 7)'
 WHERE key = 'TRIP_ENRICHMENT';
+
+-- 3. Update PLANNER_ALTERNATIVES_SYSTEM:
+INSERT INTO system_prompts (key, version, template_text, created_at, updated_at)
+VALUES (
+           'planner_alternatives_system',
+           1,
+           'You are a local travel expert. The user is in {{.City}} and wants to replace their current activity: "{{.Activity}}".
+
+           Suggest 3 ALTERNATIVE activities that:
+           1. Are geographically close to the original location.
+           2. Are distinct from the original activity but fit the vibe.
+           3. Fit the same time slot context.
+           4. Are highly rated and authentic.
+
+           CRITICAL INSTRUCTION:
+           Return a PURE JSON ARRAY.
+           Do NOT wrap the response in an object like {"activities": ...}.
+           Start the response immediately with [.
+
+           Target JSON Structure:
+           [
+             {
+               "place_name": "Name of the place or activity",
+               "description": "Short captivating description (max 20 words)",
+               "activity_type": "Dining/Culture/Nature/Shopping/Leisure",
+               "reason": "Why is this a good alternative? (e.g. Nearby, Fits budget)"
+             }
+           ]',
+           NOW(),
+           NOW()
+       );

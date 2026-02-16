@@ -123,6 +123,10 @@ func (m *MockTripService) AddActivity(ctx context.Context, tripID string, dayIdx
 	return nil, nil
 }
 
+func (m *MockTripService) GetAddActivitySuggestions(ctx context.Context, tripID string, dayIdx int, timeStr string) ([]domain.ActivityAlternative, error) {
+	return nil, nil
+}
+
 func (m *MockTripService) DeleteActivity(ctx context.Context, tripID string, dayIdx, actIdx int) (*domain.TripPlan, error) {
 	return nil, nil
 }

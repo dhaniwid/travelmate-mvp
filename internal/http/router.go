@@ -95,6 +95,7 @@ func SetupRouter(
 				protected.GET("/trips/:id/alternatives/:day_index/:activity_index", tripHandler.GetActivityAlternativesByIndex)
 				protected.POST("/trips/:id/swap/:day_index/:activity_index", tripHandler.SwapActivity)
 				protected.POST("/trips/:id/activities", tripHandler.AddActivity)
+				protected.GET("/trips/:id/suggestions/:day_index", tripHandler.GetAddActivitySuggestions)
 				protected.DELETE("/trips/:id/activities/:day_index/:activity_index", tripHandler.DeleteActivity)
 				protected.GET("/trips/:id/export/pdf", tripHandler.ExportPDF) // Premium Export 📄
 
