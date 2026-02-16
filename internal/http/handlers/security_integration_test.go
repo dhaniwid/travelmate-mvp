@@ -59,7 +59,7 @@ func TestSecurity_IDOR(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 
-		c.Set("user_id", "user_b")
+		c.Set("userID", "user_b")
 		c.Params = []gin.Param{{Key: "id", Value: "123"}}
 
 		c.Request, _ = http.NewRequest("DELETE", "/api/v1/trips/123", nil)
@@ -90,7 +90,7 @@ func TestSecurity_GetTrip_IDOR(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 
-		c.Set("user_id", "user_b")
+		c.Set("userID", "user_b")
 		c.Params = []gin.Param{{Key: "id", Value: "789"}}
 
 		c.Request, _ = http.NewRequest("GET", "/api/v1/trips/789", nil)

@@ -138,6 +138,21 @@ func (t *TemplatePlanner) GenerateAlternatives(ctx context.Context, dest, activi
 	}, nil
 }
 
+// GenerateActivityReplacement: Dummy implementation
+func (t *TemplatePlanner) GenerateActivityReplacement(ctx context.Context, dest, activity string, tags []string) ([]domain.ActivityAlternative, error) {
+	return t.GenerateAlternatives(ctx, dest, activity, "", tags)
+}
+
+func (t *TemplatePlanner) EnhanceActivity(ctx context.Context, dest, title string) (*domain.Activity, error) {
+	return &domain.Activity{
+		Activity:    title,
+		Description: "A beautiful place to visit (Template)",
+		PlaceName:   dest,
+		Type:        "Leisure",
+		IsSkeleton:  false,
+	}, nil
+}
+
 // GenerateDiscovery: Dummy Discovery (Untuk Fitur Baru)
 func (t *TemplatePlanner) GetDiscoveryInfo(ctx context.Context, city string) (*domain.DiscoveryResponse, error) {
 	return &domain.DiscoveryResponse{

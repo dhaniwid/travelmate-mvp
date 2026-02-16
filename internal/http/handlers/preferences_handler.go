@@ -19,13 +19,13 @@ func NewPreferencesHandler(repo *repositories.PreferencesRepository) *Preference
 // GetPreferences handles GET /api/v1/user/preferences
 func (h *PreferencesHandler) GetPreferences(c *gin.Context) {
 	// Get UserID from context (set by AuthMiddleware)
-	userID, exists := c.Get("user_id")
-	if !exists {
+	userID := c.GetString("userID")
+	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	prefs, err := h.Repo.GetPreferences(c, userID.(string))
+	prefs, err := h.Repo.GetPreferences(c, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch preferences"})
 		return
@@ -35,7 +35,7 @@ func (h *PreferencesHandler) GetPreferences(c *gin.Context) {
 	// For frontend convenience, we return a default structure even if it's new
 	if prefs == nil {
 		c.JSON(http.StatusOK, domain.UserPreferences{
-			UserID:      userID.(string),
+			UserID:      userID,
 			Pace:        "BALANCED",
 			BudgetTier:  "MID",
 			Dietary:     []string{},
@@ -50,8 +50,8 @@ func (h *PreferencesHandler) GetPreferences(c *gin.Context) {
 
 // UpdatePreferences handles PUT /api/v1/user/preferences
 func (h *PreferencesHandler) UpdatePreferences(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
+	userID := c.GetString("userID")
+	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -63,7 +63,7 @@ func (h *PreferencesHandler) UpdatePreferences(c *gin.Context) {
 	}
 
 	// Override UserID from context to prevent ID spoofing
-	input.UserID = userID.(string)
+	input.UserID = userID
 
 	if err := h.Repo.UpsertPreferences(c, &input); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update preferences"})

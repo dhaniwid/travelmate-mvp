@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -258,6 +259,160 @@ func (s *TripService) recommendDestination(style string) string {
 
 func (s *TripService) GetActivityAlternatives(ctx context.Context, dest, activity, location string, tags []string) ([]domain.ActivityAlternative, error) {
 	return s.Planner.GenerateAlternatives(ctx, dest, activity, location, tags)
+}
+
+// GetActivityAlternativesByIndex (M-128): Optimized index-based replacement
+func (s *TripService) GetActivityAlternativesByIndex(ctx context.Context, tripID string, dayIdx, actIdx int) ([]domain.ActivityAlternative, error) {
+	// 1. Fetch Trip
+	tripAndPlan, err := s.TripRepo.GetTripWithPlan(ctx, tripID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch trip: %w", err)
+	}
+	if tripAndPlan == nil {
+		return nil, fmt.Errorf("trip not found")
+	}
+
+	// 2. SAFETY: Validate Indices (Panic Protection)
+	if dayIdx < 0 || dayIdx >= len(tripAndPlan.Plan.Itinerary) {
+		return nil, fmt.Errorf("invalid day index: %d", dayIdx)
+	}
+	day := tripAndPlan.Plan.Itinerary[dayIdx]
+	if actIdx < 0 || actIdx >= len(day.Activities) {
+		return nil, fmt.Errorf("invalid activity index: %d", actIdx)
+	}
+
+	activity := day.Activities[actIdx]
+
+	// 3. Call AI with specific context
+	tags := []string{activity.Type}
+	return s.Planner.GenerateActivityReplacement(ctx, tripAndPlan.Trip.Destination, activity.Activity, tags)
+}
+
+// SwapActivity (M-128): Persistent activity swap via index
+func (s *TripService) SwapActivity(ctx context.Context, tripID string, dayIdx, actIdx int, alt domain.ActivityAlternative) error {
+	// 1. Fetch Trip
+	tripAndPlan, err := s.TripRepo.GetTripWithPlan(ctx, tripID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch trip: %w", err)
+	}
+	if tripAndPlan == nil {
+		return fmt.Errorf("trip not found")
+	}
+
+	// 2. SAFETY: Validate Indices
+	if dayIdx < 0 || dayIdx >= len(tripAndPlan.Plan.Itinerary) {
+		return fmt.Errorf("invalid day index: %d", dayIdx)
+	}
+	day := &tripAndPlan.Plan.Itinerary[dayIdx]
+	if actIdx < 0 || actIdx >= len(day.Activities) {
+		return fmt.Errorf("invalid activity index: %d", actIdx)
+	}
+
+	// 3. Perform Swap
+	oldActivity := day.Activities[actIdx]
+	day.Activities[actIdx] = domain.Activity{
+		Time:        oldActivity.Time, // Persist original time
+		Activity:    alt.Activity,
+		Type:        alt.Type,
+		Description: alt.Description,
+		PlaceName:   alt.PlaceName,
+		IsSkeleton:  false,
+	}
+
+	// 4. Increment Quota if saved
+	if tripAndPlan.Trip.UserID != "" {
+		tripAndPlan.Trip.AIEditsUsed++
+	}
+
+	// 5. Save back to DB
+	return s.TripRepo.SaveTripPlan(ctx, tripAndPlan.Trip, tripAndPlan.Plan)
+}
+
+// AddActivity (M-128): Add a new activity to the itinerary
+func (s *TripService) AddActivity(ctx context.Context, tripID string, dayIdx int, title, time string, autoEnhance bool) (*domain.TripPlan, error) {
+	// 1. Fetch Trip
+	tripAndPlan, err := s.TripRepo.GetTripWithPlan(ctx, tripID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch trip: %w", err)
+	}
+	if tripAndPlan == nil {
+		return nil, fmt.Errorf("trip not found")
+	}
+
+	// 2. SAFETY: Validate Indices
+	if dayIdx < 0 || dayIdx >= len(tripAndPlan.Plan.Itinerary) {
+		return nil, fmt.Errorf("invalid day index: %d", dayIdx)
+	}
+	day := &tripAndPlan.Plan.Itinerary[dayIdx]
+
+	// 3. Prepare New Activity
+	newActivity := domain.Activity{
+		Time:        time,
+		Activity:    title,
+		Description: "",
+		PlaceName:   "",
+		Type:        "Activity",
+		IsSkeleton:  false,
+	}
+
+	// 4. Optional AI Enhancement
+	if autoEnhance {
+		enhanced, err := s.Planner.EnhanceActivity(ctx, tripAndPlan.Trip.Destination, title)
+		if err == nil && enhanced != nil {
+			newActivity.Description = enhanced.Description
+			newActivity.PlaceName = enhanced.PlaceName
+			newActivity.Type = enhanced.Type
+			newActivity.Latitude = enhanced.Latitude
+			newActivity.Longitude = enhanced.Longitude
+		}
+	}
+
+	// 5. Append and Sort by Time
+	day.Activities = append(day.Activities, newActivity)
+	sort.Slice(day.Activities, func(i, j int) bool {
+		return day.Activities[i].Time < day.Activities[j].Time
+	})
+
+	// 6. Save back to DB
+	err = s.TripRepo.SaveTripPlan(ctx, tripAndPlan.Trip, tripAndPlan.Plan)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save trip: %w", err)
+	}
+
+	return &tripAndPlan.Plan, nil
+}
+
+// DeleteActivity (M-128): Remove an activity from the itinerary
+func (s *TripService) DeleteActivity(ctx context.Context, tripID string, dayIdx, actIdx int) (*domain.TripPlan, error) {
+	// 1. Fetch Trip
+	tripAndPlan, err := s.TripRepo.GetTripWithPlan(ctx, tripID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch trip: %w", err)
+	}
+	if tripAndPlan == nil {
+		return nil, fmt.Errorf("trip not found")
+	}
+
+	// 2. SAFETY: Validate Indices
+	if dayIdx < 0 || dayIdx >= len(tripAndPlan.Plan.Itinerary) {
+		return nil, fmt.Errorf("invalid day index: %d", dayIdx)
+	}
+	day := &tripAndPlan.Plan.Itinerary[dayIdx]
+
+	if actIdx < 0 || actIdx >= len(day.Activities) {
+		return nil, fmt.Errorf("invalid activity index: %d", actIdx)
+	}
+
+	// 3. Remove Activity
+	day.Activities = append(day.Activities[:actIdx], day.Activities[actIdx+1:]...)
+
+	// 4. Save back to DB
+	err = s.TripRepo.SaveTripPlan(ctx, tripAndPlan.Trip, tripAndPlan.Plan)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save trip: %w", err)
+	}
+
+	return &tripAndPlan.Plan, nil
 }
 
 // GetPackingList mengambil data trip lalu meminta AI membuatkan daftar bawaan

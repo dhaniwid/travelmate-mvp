@@ -91,6 +91,14 @@ func (m *MockTripService) GetActivityAlternatives(ctx context.Context, dest, act
 	return nil, nil
 }
 
+func (m *MockTripService) GetActivityAlternativesByIndex(ctx context.Context, tripID string, dayIdx, actIdx int) ([]domain.ActivityAlternative, error) {
+	return nil, nil
+}
+
+func (m *MockTripService) SwapActivity(ctx context.Context, tripID string, dayIdx, actIdx int, alt domain.ActivityAlternative) error {
+	return nil
+}
+
 func (m *MockTripService) GetPackingList(ctx context.Context, tripID string) ([]domain.PackingCategory, error) {
 	return nil, nil
 }
@@ -108,5 +116,13 @@ func (m *MockTripService) ExportTripToPDF(ctx context.Context, tripID string) ([
 }
 
 func (m *MockTripService) EnrichActivity(ctx context.Context, tripID string, dayIdx, actIdx int) (*domain.Activity, error) {
+	return nil, nil
+}
+
+func (m *MockTripService) AddActivity(ctx context.Context, tripID string, dayIdx int, title, time string, autoEnhance bool) (*domain.TripPlan, error) {
+	return nil, nil
+}
+
+func (m *MockTripService) DeleteActivity(ctx context.Context, tripID string, dayIdx, actIdx int) (*domain.TripPlan, error) {
 	return nil, nil
 }

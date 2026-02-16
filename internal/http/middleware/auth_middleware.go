@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 
+	"os"
+
 	"github.com/clerk/clerk-sdk-go/v2"
 	"github.com/clerk/clerk-sdk-go/v2/jwt"
 	"github.com/gin-gonic/gin"
@@ -51,13 +53,19 @@ func AuthMiddleware(secretKey string) gin.HandlerFunc {
 
 		// 4. Verifikasi Token ke Clerk (Stateless/Offline Verification)
 		// CRITICAL: We use default JWKS fetching (api.clerk.com) to avoid 404 errors on custom domains.
-		// We pass ProxyURL to allow tokens issued by the custom domain.
-		proxyURL := "https://clerk.miru.travel"
+		// If CLERK_PROXY_URL is set (Production with Custom Domain), we use it to allow custom issuer.
+		// If empty (Localhost/Dev), we skip it so standard .clerk.accounts.dev tokens are accepted.
+		verifyParams := &jwt.VerifyParams{
+			Token: sessionToken,
+		}
 
-		claims, err := jwt.Verify(c.Request.Context(), &jwt.VerifyParams{
-			Token:    sessionToken,
-			ProxyURL: &proxyURL, // Allows custom domain issuer
-		})
+		proxyURL := os.Getenv("CLERK_PROXY_URL")
+		if proxyURL != "" {
+			fmt.Printf("🌐 [AUTH] Using ProxyURL: %s\n", proxyURL)
+			verifyParams.ProxyURL = &proxyURL
+		}
+
+		claims, err := jwt.Verify(c.Request.Context(), verifyParams)
 
 		if err != nil {
 			// 🚨 DEBUG: Print exact error to console for troubleshooting
@@ -78,12 +86,91 @@ func AuthMiddleware(secretKey string) gin.HandlerFunc {
 		// 5. Sukses! Simpan User ID ke Context
 		// 'sub' (Subject) di JWT Clerk adalah User ID (contoh: user_2b7...)
 		userID := claims.Subject
+		// Fallback for different SDK versions
+		if userID == "" && claims.ID != "" {
+			userID = claims.ID
+		}
+
+		// DEBUG LOG (CRITICAL): Print what we found
+		fmt.Printf("🔍 AUTH DEBUG: Found Subject='%s' | ID='%s'\n", claims.Subject, claims.ID)
+
+		// 🛑 THE STRICT GATEKEEPER: IF USER ID IS STILL EMPTY -> ABORT!
+		if userID == "" {
+			fmt.Println("🚨 CRITICAL: Token valid but UserID is EMPTY. Aborting.")
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"code":    "unauthorized",
+				"message": "Token valid but missing UserID",
+			})
+			return
+		}
+
+		fmt.Printf("✅ AUTH SUCCESS: UserID=%s\n", userID)
 
 		// Set ke context agar bisa dipakai di Handler (misal: tripHandler.ListTrips)
-		c.Set("user_id", userID)
+		c.Set("userID", userID)
 
 		// Opsional: Set claims lain jika butuh email/metadata
 		// c.Set("user_email", claims.Email)
+
+		c.Next()
+	}
+}
+
+// OptionalAuthMiddleware attempts to verify the token but does not abort if missing or invalid.
+// Used for public endpoints that might need user identity (e.g. GetTrip for registered users).
+func OptionalAuthMiddleware(secretKey string) gin.HandlerFunc {
+	if secretKey == "" {
+		return func(c *gin.Context) { c.Next() } // Fail gracefully
+	}
+
+	clerk.SetKey(secretKey)
+
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			fmt.Printf("ℹ️ [OPTIONAL-AUTH] No Authorization header found. Proceeding as guest.\n")
+			c.Next()
+			return
+		}
+
+		if !strings.HasPrefix(authHeader, "Bearer ") {
+			fmt.Printf("⚠️ [OPTIONAL-AUTH] Invalid header format (No 'Bearer ' prefix). Proceeding as guest.\n")
+			c.Next()
+			return
+		}
+
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 {
+			fmt.Printf("⚠️ [OPTIONAL-AUTH] Invalid header splitting (got %d parts). Proceeding as guest.\n", len(parts))
+			c.Next()
+			return
+		}
+		sessionToken := parts[1]
+
+		proxyURL := os.Getenv("CLERK_PROXY_URL")
+		verifyParams := &jwt.VerifyParams{Token: sessionToken}
+		if proxyURL != "" {
+			verifyParams.ProxyURL = &proxyURL
+		}
+
+		claims, err := jwt.Verify(c.Request.Context(), verifyParams)
+		if err != nil {
+			fmt.Printf("⚠️ [OPTIONAL-AUTH] Token verification failed: %v. Proceeding as guest.\n", err)
+			c.Next()
+			return
+		}
+
+		userID := claims.Subject
+		if userID == "" && claims.ID != "" {
+			userID = claims.ID
+		}
+
+		if userID != "" {
+			fmt.Printf("✅ [OPTIONAL-AUTH] Success! Found UserID=%s\n", userID)
+			c.Set("userID", userID)
+		} else {
+			fmt.Printf("⚠️ [OPTIONAL-AUTH] Token valid but UserID (Subject/ID) is empty.\n")
+		}
 
 		c.Next()
 	}

@@ -17,7 +17,7 @@ func NewSubscriptionHandler(s ISubscriptionService) *SubscriptionHandler {
 // GetSubscription returns the current user's subscription status
 func (h *SubscriptionHandler) GetSubscription(c *gin.Context) {
 	// 1. Get User Identity from Context (set by AuthMiddleware)
-	userID := c.GetString("user_id")
+	userID := c.GetString("userID")
 	email := c.GetString("email")
 	name := c.GetString("name")
 
@@ -39,7 +39,7 @@ func (h *SubscriptionHandler) GetSubscription(c *gin.Context) {
 
 // GetQuota returns the user's trip creation quota
 func (h *SubscriptionHandler) GetQuota(c *gin.Context) {
-	userID := c.GetString("user_id")
+	userID := c.GetString("userID")
 	email := c.GetString("email")
 
 	if userID == "" {
@@ -58,7 +58,7 @@ func (h *SubscriptionHandler) GetQuota(c *gin.Context) {
 
 // CreateCheckoutSession handles the creation of a Stripe Checkout Session
 func (h *SubscriptionHandler) CreateCheckoutSession(c *gin.Context) {
-	userID := c.GetString("user_id")
+	userID := c.GetString("userID")
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: Missing user_id"})
 		return

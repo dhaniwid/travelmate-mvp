@@ -37,7 +37,7 @@ func TestSaveTrip_QuotaEnforcement(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Set("user_id", "free_user")
+		c.Set("userID", "free_user")
 
 		reqBody := map[string]interface{}{
 			"id":      "trip_4",

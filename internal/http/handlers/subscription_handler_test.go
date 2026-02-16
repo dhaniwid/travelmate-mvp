@@ -23,7 +23,7 @@ func TestGetSubscription_Handler(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request, _ = http.NewRequest("GET", "/api/subscription", nil)
-		c.Set("user_id", "free_user")
+		c.Set("userID", "free_user")
 
 		handler.GetSubscription(c)
 
@@ -38,7 +38,7 @@ func TestGetSubscription_Handler(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request, _ = http.NewRequest("GET", "/api/subscription", nil)
-		c.Set("user_id", "pro_user")
+		c.Set("userID", "pro_user")
 
 		handler.GetSubscription(c)
 

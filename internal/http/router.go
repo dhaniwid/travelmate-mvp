@@ -61,21 +61,24 @@ func SetupRouter(
 			// 🌍 PUBLIC ROUTES (Accessible by Guest/Anonymous)
 			// ============================================================
 
-			// 1. Trip Core
-			v1.POST("/trips", tripHandler.CreateTripAsync) // NEW: Progressive Generation (M-123)
-			v1.POST("/trips/stream", tripHandler.CreateTripStream)
-			v1.GET("/trips/:id", tripHandler.GetTrip)
-			v1.GET("/trips/:id/enrich/:day_index/:activity_index", tripHandler.EnrichActivity) // Lazy Enrichment 🦴✨
+			// 1. Trip Core (Optional Auth for Registered User context)
+			publicTrips := v1.Group("/")
+			publicTrips.Use(middleware.OptionalAuthMiddleware(clerkKey))
+			{
+				publicTrips.POST("/trips", tripHandler.CreateTripAsync)
+				publicTrips.POST("/trips/stream", tripHandler.CreateTripStream)
+				publicTrips.GET("/trips/:id", tripHandler.GetTrip)
+				publicTrips.GET("/trips/:id/enrich/:day_index/:activity_index", tripHandler.EnrichActivity)
+				publicTrips.POST("/trips/:id/feedback", fbHandler.SubmitFeedback)
+			}
 
-			// 2. Discovery & Inspiration (NEW ROUTE) 🚀
-			// Endpoint: GET /api/v1/discovery?city=Surabaya
+			// 2. Discovery & Inspiration 🚀
 			v1.GET("/discovery", tripHandler.GetDiscovery)
-			v1.GET("/discovery/trending", discoveryHandler.GetTrending) // NEW
-			v1.GET("/discovery/explore", discoveryHandler.GetExplore)   // NEW
+			v1.GET("/discovery/trending", discoveryHandler.GetTrending)
+			v1.GET("/discovery/explore", discoveryHandler.GetExplore)
 
-			// 3. Utilities & Feedback
+			// 3. Utilities
 			v1.POST("/alternatives", tripHandler.GetAlternatives)
-			v1.POST("/trips/:id/feedback", fbHandler.SubmitFeedback)
 
 			// 4. Webhooks (Public)
 			api.POST("/webhooks/stripe", webhookHandler.HandleStripeWebhook)
@@ -88,7 +91,11 @@ func SetupRouter(
 				protected.GET("/trips", tripHandler.ListTrips)
 				protected.POST("/trips/save", tripHandler.SaveTrip)
 				protected.DELETE("/trips/:id", tripHandler.DeleteTrip)
-				protected.POST("/trips/:id/refine", tripHandler.RefineTrip)   // Miru AI Assistant 🧠
+				protected.POST("/trips/:id/refine", tripHandler.RefineTrip) // Miru AI Assistant 🧠
+				protected.GET("/trips/:id/alternatives/:day_index/:activity_index", tripHandler.GetActivityAlternativesByIndex)
+				protected.POST("/trips/:id/swap/:day_index/:activity_index", tripHandler.SwapActivity)
+				protected.POST("/trips/:id/activities", tripHandler.AddActivity)
+				protected.DELETE("/trips/:id/activities/:day_index/:activity_index", tripHandler.DeleteActivity)
 				protected.GET("/trips/:id/export/pdf", tripHandler.ExportPDF) // Premium Export 📄
 
 				// 4. Subscription

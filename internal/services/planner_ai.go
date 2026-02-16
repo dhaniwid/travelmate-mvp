@@ -173,6 +173,29 @@ func (p *AIPlanner) GenerateAlternatives(ctx context.Context, dest, activity, lo
 	return alternatives, nil
 }
 
+// GenerateActivityReplacement (M-128): High-speed alternative generation
+func (p *AIPlanner) GenerateActivityReplacement(ctx context.Context, dest, activity string, tags []string) ([]domain.ActivityAlternative, error) {
+	// 1. Prepare Data (Minimalist for Speed)
+	inputData := map[string]interface{}{
+		"Destination": dest,
+		"Activity":    activity,
+		"Tags":        tags,
+	}
+
+	// 2. Request AI with optimized "alternatives" system prompt
+	var alternatives []domain.ActivityAlternative
+	if err := p.requestAI(ctx, "planner_alternatives_system", inputData, &alternatives); err != nil {
+		return nil, fmt.Errorf("AI replacement failed: %w", err)
+	}
+
+	// 3. Ensure we only return 3 alternatives (Speed & UI constraint)
+	if len(alternatives) > 3 {
+		alternatives = alternatives[:3]
+	}
+
+	return alternatives, nil
+}
+
 // GeneratePackingList Membuat daftar bawaan cerdas berdasarkan destinasi, durasi, dan style trip
 func (p *AIPlanner) GeneratePackingList(ctx context.Context, trip domain.Trip) ([]domain.PackingCategory, error) {
 	// 1. Siapkan struct wrapper untuk menangkap JSON output
@@ -247,6 +270,64 @@ func (p *AIPlanner) GeneratePlan(ctx context.Context, trip domain.Trip) (domain.
 	// For now, return what we got.
 
 	return plan, nil
+}
+
+// EnhanceActivity (M-128): AI-powered metadata generation for added activities
+func (p *AIPlanner) EnhanceActivity(ctx context.Context, dest, title string) (*domain.Activity, error) {
+	prompt := fmt.Sprintf(`
+		Context: Traveler in %s.
+		Activity: %s
+		
+		Generate:
+		1. Captivating description.
+		2. Specific place name.
+		3. Category (sightseeing, culinary, shopping, leisure, adventure).
+		4. Latitude/Longitude.
+		
+		Return JSON:
+		{
+			"description": "string",
+			"place_name": "string",
+			"category": "string",
+			"latitude": number,
+			"longitude": number,
+			"location_type": "specific|generic"
+		}
+	`, dest, title)
+
+	resp, err := p.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model: openai.GPT4oMini,
+		Messages: []openai.ChatCompletionMessage{
+			{Role: openai.ChatMessageRoleUser, Content: prompt},
+		},
+		ResponseFormat: &openai.ChatCompletionResponseFormat{Type: openai.ChatCompletionResponseFormatTypeJSONObject},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		Description  string  `json:"description"`
+		PlaceName    string  `json:"place_name"`
+		Category     string  `json:"category"`
+		Latitude     float64 `json:"latitude"`
+		Longitude    float64 `json:"longitude"`
+		LocationType string  `json:"location_type"`
+	}
+	if err := json.Unmarshal([]byte(resp.Choices[0].Message.Content), &result); err != nil {
+		return nil, err
+	}
+
+	return &domain.Activity{
+		Activity:     title,
+		Description:  result.Description,
+		PlaceName:    result.PlaceName,
+		Type:         strings.Title(result.Category),
+		Latitude:     &result.Latitude,
+		Longitude:    &result.Longitude,
+		LocationType: result.LocationType,
+		IsSkeleton:   false,
+	}, nil
 }
 
 // RefineItinerary Modifies an existing itinerary based on user instruction (Chat Agent)

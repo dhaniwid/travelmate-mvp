@@ -28,7 +28,7 @@ func (h *AnalyticsHandler) TrackEvent(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetString("user_id")
+	userID := c.GetString("userID")
 	if userID == "" {
 		userID = "anonymous"
 	}
@@ -44,7 +44,7 @@ func (h *AnalyticsHandler) TrackEvent(c *gin.Context) {
 
 // GetImpactStats mengambil statistik dampak user
 func (h *AnalyticsHandler) GetImpactStats(c *gin.Context) {
-	userID := c.GetString("user_id")
+	userID := c.GetString("userID")
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return

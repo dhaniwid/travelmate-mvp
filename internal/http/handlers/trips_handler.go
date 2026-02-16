@@ -153,7 +153,7 @@ func (h *TripHandler) GetTrip(c *gin.Context) {
 	// 🛡️ SECURITY: IDOR CHECK
 	// Check if trip owner matches requester
 	if result.Trip.UserID != "" && result.Trip.UserID != "guest" {
-		userID := c.GetString("user_id")
+		userID := c.GetString("userID")
 		if result.Trip.UserID != userID {
 			fmt.Printf("\n🚨 IDOR BLOCK: TripID=%s | OwnerID=%s | RequestorID=%s\n", id, result.Trip.UserID, userID)
 			c.JSON(http.StatusForbidden, domain.APIError{
@@ -171,7 +171,7 @@ func (h *TripHandler) GetTrip(c *gin.Context) {
 func (h *TripHandler) ListTrips(c *gin.Context) {
 	// 1. AMBIL USER ID DARI CONTEXT (Middleware Clerk)
 	// Pastikan middleware auth Anda men-set "user_id" ke context
-	userID := c.GetString("user_id")
+	userID := c.GetString("userID")
 
 	// 🛡️ SECURITY GUARD: Jika tidak ada user_id, tolak akses
 	if userID == "" {
@@ -220,7 +220,7 @@ func (h *TripHandler) SaveTrip(c *gin.Context) {
 	}
 
 	// 🛡️ SECURITY: ALWAYS USE AUTHENTICATED USER ID FROM CONTEXT
-	userID := c.GetString("user_id")
+	userID := c.GetString("userID")
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, domain.APIError{Code: "unauthorized", Message: "User ID missing from context"})
 		return
@@ -291,7 +291,7 @@ func (h *TripHandler) DeleteTrip(c *gin.Context) {
 	tripID := c.Param("id")
 
 	// 🛡️ SECURITY: ALWAYS USE AUTHENTICATED USER ID FROM CONTEXT (Fix IDOR)
-	userID := c.GetString("user_id")
+	userID := c.GetString("userID")
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, domain.APIError{Code: "unauthorized", Message: "Missing User Context"})
 		return
@@ -406,7 +406,7 @@ func (h *TripHandler) ExportPDF(c *gin.Context) {
 	tripID := c.Param("id")
 
 	// 0. CHECK PREMIUM STATUS (PRO ONLY)
-	userID := c.GetString("user_id") // From Auth Middleware
+	userID := c.GetString("userID") // From Auth Middleware
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, domain.APIError{Code: "unauthorized", Message: "User not authenticated"})
 		return
@@ -471,4 +471,84 @@ func (h *TripHandler) EnrichActivity(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"data": enrichedActivity,
 	})
+}
+
+// GetActivityAlternativesByIndex handles GET /api/v1/trips/:id/alternatives/:day_index/:activity_index
+func (h *TripHandler) GetActivityAlternativesByIndex(c *gin.Context) {
+	tripID := c.Param("id")
+	dayIdx, _ := strconv.Atoi(c.Param("day_index"))
+	actIdx, _ := strconv.Atoi(c.Param("activity_index"))
+
+	results, err := h.Service.GetActivityAlternativesByIndex(c.Request.Context(), tripID, dayIdx, actIdx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, domain.APIError{Code: "internal_error", Message: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": results})
+}
+
+type SwapActivityRequest struct {
+	Alternative domain.ActivityAlternative `json:"alternative" binding:"required"`
+}
+
+// SwapActivity handles POST /api/v1/trips/:id/swap/:day_index/:activity_index
+func (h *TripHandler) SwapActivity(c *gin.Context) {
+	tripID := c.Param("id")
+	dayIdx, _ := strconv.Atoi(c.Param("day_index"))
+	actIdx, _ := strconv.Atoi(c.Param("activity_index"))
+
+	var req SwapActivityRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, domain.APIError{Code: "bad_request", Message: err.Error()})
+		return
+	}
+
+	err := h.Service.SwapActivity(c.Request.Context(), tripID, dayIdx, actIdx, req.Alternative)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, domain.APIError{Code: "internal_error", Message: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Activity swapped successfully"})
+}
+
+type AddActivityRequest struct {
+	DayIdx      int    `json:"day_index"`
+	Title       string `json:"title" binding:"required"`
+	Time        string `json:"time" binding:"required"`
+	AutoEnhance bool   `json:"auto_enhance"`
+}
+
+// AddActivity handles POST /api/v1/trips/:id/activities
+func (h *TripHandler) AddActivity(c *gin.Context) {
+	tripID := c.Param("id")
+	var req AddActivityRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, domain.APIError{Code: "bad_request", Message: err.Error()})
+		return
+	}
+
+	updatedPlan, err := h.Service.AddActivity(c.Request.Context(), tripID, req.DayIdx, req.Title, req.Time, req.AutoEnhance)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, domain.APIError{Code: "internal_error", Message: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": updatedPlan})
+}
+
+// DeleteActivity handles DELETE /api/v1/trips/:id/activities/:day_index/:activity_index
+func (h *TripHandler) DeleteActivity(c *gin.Context) {
+	tripID := c.Param("id")
+	dayIdx, _ := strconv.Atoi(c.Param("day_index"))
+	actIdx, _ := strconv.Atoi(c.Param("activity_index"))
+
+	updatedPlan, err := h.Service.DeleteActivity(c.Request.Context(), tripID, dayIdx, actIdx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, domain.APIError{Code: "internal_error", Message: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": updatedPlan})
 }

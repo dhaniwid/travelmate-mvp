@@ -10,6 +10,8 @@ type PlannerEngine interface {
 	GenerateOnlyItinerary(ctx context.Context, trip domain.Trip) (domain.ItineraryResponse, error)
 	GenerateTransportAndStay(ctx context.Context, trip domain.Trip) (domain.TripPlan, error)
 	GenerateAlternatives(ctx context.Context, dest, activity, location string, tags []string) ([]domain.ActivityAlternative, error)
+	GenerateActivityReplacement(ctx context.Context, dest, activity string, tags []string) ([]domain.ActivityAlternative, error)
+	EnhanceActivity(ctx context.Context, dest, title string) (*domain.Activity, error)
 	GeneratePackingList(ctx context.Context, trip domain.Trip) ([]domain.PackingCategory, error)
 	GeneratePlan(ctx context.Context, trip domain.Trip) (domain.TripPlan, error)
 	GenerateEditorial(ctx context.Context, trip domain.Trip) (domain.EditorialResponse, error)
