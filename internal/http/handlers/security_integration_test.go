@@ -26,7 +26,7 @@ func TestSecurity_QuotaBypass(t *testing.T) {
 			return false, nil // FORBIDDEN
 		}
 
-		handler := NewTripHandler(&MockTripService{}, mockSub)
+		handler := NewTripHandler(&MockTripService{}, mockSub, nil)
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
@@ -54,7 +54,7 @@ func TestSecurity_IDOR(t *testing.T) {
 
 	t.Run("Scenario B: The Peeping Tom (IDOR Attack on Delete)", func(t *testing.T) {
 		mockTrip := &MockTripService{}
-		handler := NewTripHandler(mockTrip, &MockSubService{})
+		handler := NewTripHandler(mockTrip, &MockSubService{}, nil)
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
@@ -85,7 +85,7 @@ func TestSecurity_GetTrip_IDOR(t *testing.T) {
 			},
 		}
 
-		handler := NewTripHandler(mockTrip, &MockSubService{})
+		handler := NewTripHandler(mockTrip, &MockSubService{}, nil)
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
@@ -109,7 +109,7 @@ func TestSecurity_RateLimit(t *testing.T) {
 	t.Run("Scenario C: The Bill Exploder (Stress/Rate Limit Check)", func(t *testing.T) {
 		mockTrip := &MockTripService{}
 		mockSub := &MockSubService{}
-		handler := NewTripHandler(mockTrip, mockSub)
+		handler := NewTripHandler(mockTrip, mockSub, nil)
 
 		var wg sync.WaitGroup
 		numRequests := 10

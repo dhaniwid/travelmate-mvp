@@ -169,3 +169,58 @@ func (r *UserRepository) GetUserByStripeID(ctx context.Context, stripeCustID str
 
 	return &user, nil
 }
+
+// GetUserByEmail fetches a user by their email
+func (r *UserRepository) GetUserByEmail(ctx context.Context, emailInput string) (*domain.User, error) {
+	query := `
+		SELECT 
+			id, user_id, email, name, 
+			subscription_tier, subscription_status, 
+			subscription_started_at, subscription_ends_at,
+			stripe_customer_id, stripe_subscription_id,
+			created_at, updated_at
+		FROM users
+		WHERE email = $1
+	`
+
+	var user domain.User
+	var subStarted, subEnded sql.NullTime
+	var stripeCustID, stripeSubID sql.NullString
+	var email, name sql.NullString
+
+	err := r.DB.QueryRowContext(ctx, query, emailInput).Scan(
+		&user.ID, &user.UserID, &email, &name,
+		&user.SubscriptionTier, &user.SubscriptionStatus,
+		&subStarted, &subEnded,
+		&stripeCustID, &stripeSubID,
+		&user.CreatedAt, &user.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil // Return nil if user not found, not an error
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user by email: %w", err)
+	}
+
+	if email.Valid {
+		user.Email = email.String
+	}
+	if name.Valid {
+		user.Name = name.String
+	}
+	if subStarted.Valid {
+		user.SubscriptionStartedAt = &subStarted.Time
+	}
+	if subEnded.Valid {
+		user.SubscriptionEndsAt = &subEnded.Time
+	}
+	if stripeCustID.Valid {
+		user.StripeCustomerID = stripeCustID.String
+	}
+	if stripeSubID.Valid {
+		user.StripeSubscriptionID = stripeSubID.String
+	}
+
+	return &user, nil
+}

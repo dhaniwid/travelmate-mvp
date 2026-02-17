@@ -33,6 +33,7 @@ type Trip struct {
 	ItineraryStatus  string          `json:"itinerary_status"`  // "pending", "generating", "completed"
 	AIEditsUsed      int             `json:"ai_edits_used" db:"ai_edits_used"`
 	SuggestionsCache json.RawMessage `json:"suggestions_cache,omitempty" db:"suggestions_cache"`
+	Collaborators    []Collaborator  `json:"collaborators,omitempty" db:"-"` // Populated via JOIN
 }
 
 const (
@@ -442,6 +443,8 @@ type User struct {
 	SubscriptionEndsAt    *time.Time `json:"subscription_ends_at"`
 	StripeCustomerID      string     `json:"stripe_customer_id"`
 	StripeSubscriptionID  string     `json:"stripe_subscription_id"`
+	ReferralCode          string     `json:"referral_code" db:"referral_code"`
+	BonusTripQuota        int        `json:"bonus_trip_quota" db:"bonus_trip_quota"`
 	CreatedAt             time.Time  `json:"created_at"`
 	UpdatedAt             time.Time  `json:"updated_at"`
 }
@@ -478,3 +481,34 @@ type AnalyticsEvent struct {
 	EventData map[string]interface{} `json:"event_data"`
 	CreatedAt time.Time              `json:"created_at"`
 }
+
+// ==========================================
+// 9. TRIP COLLABORATION
+// ==========================================
+
+// Collaborator represents a user who has access to a trip
+type Collaborator struct {
+	ID        string    `json:"id" db:"id"`
+	TripID    string    `json:"trip_id" db:"trip_id"`
+	UserID    string    `json:"user_id" db:"user_id"`
+	Role      string    `json:"role" db:"role"`
+	Status    string    `json:"status" db:"status"`
+	InvitedBy string    `json:"invited_by" db:"invited_by"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+	User      *User     `json:"user,omitempty" db:"-"` // Enriched user details
+}
+
+// Collaboration Role Constants
+const (
+	RoleOwner  = "owner"  // Full control: can delete trip, manage collaborators
+	RoleEditor = "editor" // Can modify trip details and itinerary
+	RoleViewer = "viewer" // Read-only access
+)
+
+// Collaboration Status Constants
+const (
+	StatusPending  = "pending"  // Invitation sent, not yet accepted
+	StatusAccepted = "accepted" // User has accepted and has active access
+	StatusDeclined = "declined" // User declined the invitation
+)

@@ -411,6 +411,7 @@ func (r *TripRepository) Delete(ctx context.Context, id string, userID string) e
 }
 
 // GetByID GetByID: Mengambil metadata trip saja (Ringan, tanpa plan_data)
+// Now supports collaboration - fetches collaborators if requested
 func (r *TripRepository) GetByID(ctx context.Context, id string) (*domain.Trip, error) {
 	query := `
         SELECT 
@@ -463,20 +464,35 @@ func (r *TripRepository) GetByID(ctx context.Context, id string) (*domain.Trip, 
 		trip.ItineraryStatus = itineraryStatus.String
 	}
 
+	// Fetch collaborators for this trip
+	collaborators, err := r.getCollaboratorsForTrip(ctx, id)
+	if err != nil {
+		log.Printf("Warning: failed to fetch collaborators for trip %s: %v", id, err)
+		// Don't fail the whole request, just log the error
+	} else {
+		trip.Collaborators = collaborators
+	}
+
 	return &trip, nil
 }
 
 // ListTripsByUser mengambil semua trip milik user tertentu
+// Now includes trips where user is a collaborator
 func (r *TripRepository) ListTripsByUser(ctx context.Context, userID string) ([]domain.Trip, error) {
-	// 🔍 FILTER BY USER_ID
+	// 🔍 FILTER BY USER_ID OR COLLABORATOR ACCESS
+	// This query returns trips where the user is either:
+	// 1. The owner (trips.user_id = userID)
+	// 2. An accepted collaborator
 	query := `
-        SELECT 
-            id, user_id, location_id, destination, origin, 
-            start_date, trip_days, style,  
-            is_public, created_at, status, enrichment_status, itinerary_status
-        FROM trips
-        WHERE user_id = $1
-        ORDER BY created_at DESC
+        SELECT DISTINCT
+            t.id, t.user_id, t.location_id, t.destination, t.origin, 
+            t.start_date, t.trip_days, t.style,  
+            t.is_public, t.created_at, t.status, t.enrichment_status, t.itinerary_status
+        FROM trips t
+        LEFT JOIN trip_collaborators tc ON t.id = tc.trip_id
+        WHERE t.user_id = $1 
+           OR (tc.user_id = $1 AND tc.status = 'accepted')
+        ORDER BY t.created_at DESC
     `
 
 	rows, err := r.DB.QueryContext(ctx, query, userID)
@@ -565,4 +581,47 @@ func (r *TripRepository) CountUserTrips(ctx context.Context, userID string) (int
 		return 0, err
 	}
 	return count, nil
+}
+
+// getCollaboratorsForTrip is a helper method to fetch collaborators for a trip
+func (r *TripRepository) getCollaboratorsForTrip(ctx context.Context, tripID string) ([]domain.Collaborator, error) {
+	query := `
+		SELECT id, trip_id, user_id, role, status, invited_by, created_at, updated_at
+		FROM trip_collaborators
+		WHERE trip_id = $1
+		ORDER BY 
+			CASE role 
+				WHEN 'owner' THEN 1
+				WHEN 'editor' THEN 2
+				WHEN 'viewer' THEN 3
+			END,
+			created_at ASC
+	`
+
+	rows, err := r.DB.QueryContext(ctx, query, tripID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query collaborators: %w", err)
+	}
+	defer rows.Close()
+
+	var collaborators []domain.Collaborator
+	for rows.Next() {
+		var c domain.Collaborator
+		err := rows.Scan(
+			&c.ID,
+			&c.TripID,
+			&c.UserID,
+			&c.Role,
+			&c.Status,
+			&c.InvitedBy,
+			&c.CreatedAt,
+			&c.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan collaborator: %w", err)
+		}
+		collaborators = append(collaborators, c)
+	}
+
+	return collaborators, nil
 }

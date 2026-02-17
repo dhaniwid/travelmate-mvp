@@ -33,7 +33,7 @@ func TestSaveTrip_QuotaEnforcement(t *testing.T) {
 			},
 		}
 
-		handler := NewTripHandler(mockTrip, mockSub)
+		handler := NewTripHandler(mockTrip, mockSub, nil)
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
@@ -69,7 +69,7 @@ func TestSaveTrip_QuotaEnforcement(t *testing.T) {
 			},
 		}
 
-		handler := NewTripHandler(mockTrip, mockSub)
+		handler := NewTripHandler(mockTrip, mockSub, nil)
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)

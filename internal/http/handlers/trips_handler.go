@@ -14,10 +14,11 @@ import (
 type TripHandler struct {
 	Service    ITripService
 	SubService ISubscriptionService
+	CollabRepo ICollaboratorRepository
 }
 
-func NewTripHandler(s ITripService, sub ISubscriptionService) *TripHandler {
-	return &TripHandler{Service: s, SubService: sub}
+func NewTripHandler(s ITripService, sub ISubscriptionService, collabRepo ICollaboratorRepository) *TripHandler {
+	return &TripHandler{Service: s, SubService: sub, CollabRepo: collabRepo}
 }
 
 type AlternativesRequest struct {
@@ -150,18 +151,40 @@ func (h *TripHandler) GetTrip(c *gin.Context) {
 		})
 		return
 	}
-	// 🛡️ SECURITY: IDOR CHECK
-	// Check if trip owner matches requester
+
+	// 🛡️ SECURITY: IDOR CHECK (Owner OR Collaborator)
+	// Allow access if trip is guest/public OR user is owner OR user is a collaborator
 	if result.Trip.UserID != "" && result.Trip.UserID != "guest" {
 		userID := c.GetString("userID")
-		if result.Trip.UserID != userID {
-			fmt.Printf("\n🚨 IDOR BLOCK: TripID=%s | OwnerID=%s | RequestorID=%s\n", id, result.Trip.UserID, userID)
+
+		// First check: Is user the owner?
+		isOwner := result.Trip.UserID == userID
+
+		// Second check: Is user a collaborator?
+		hasCollabAccess := false
+		if !isOwner && h.CollabRepo != nil {
+			var err error
+			hasCollabAccess, err = h.CollabRepo.HasAccess(c.Request.Context(), id, userID)
+			if err != nil {
+				fmt.Printf("⚠️ Collaboration access check failed for TripID=%s, UserID=%s: %v\n", id, userID, err)
+				// On error, we default to deny access (fail-safe)
+				hasCollabAccess = false
+			}
+		}
+
+		// Deny access if user is neither owner nor collaborator
+		if !isOwner && !hasCollabAccess {
+			fmt.Printf("\n🚨 ACCESS DENIED: TripID=%s | OwnerID=%s | RequestorID=%s | IsOwner=%v | HasCollabAccess=%v\n",
+				id, result.Trip.UserID, userID, isOwner, hasCollabAccess)
 			c.JSON(http.StatusForbidden, domain.APIError{
 				Code:    "forbidden",
 				Message: "You do not have permission to view this trip",
 			})
 			return
 		}
+
+		fmt.Printf("✅ ACCESS GRANTED: TripID=%s | RequestorID=%s | IsOwner=%v | HasCollabAccess=%v\n",
+			id, userID, isOwner, hasCollabAccess)
 	}
 
 	c.JSON(http.StatusOK, result)

@@ -19,6 +19,9 @@ func SetupRouter(
 	discoveryHandler *handlers.DiscoveryHandler,
 	prefHandler *handlers.PreferencesHandler,
 	analyticsHandler *handlers.AnalyticsHandler,
+	collabHandler *handlers.CollaborationHandler,
+	adminHandler *handlers.AdminHandler, // Admin 👑
+	referralHandler *handlers.ReferralHandler, // Referral System 🎁
 	allowOrigins string,
 	clerkKey string,
 ) *gin.Engine {
@@ -111,6 +114,23 @@ func SetupRouter(
 				// 6. Analytics & Impact 📈
 				protected.POST("/analytics/events", analyticsHandler.TrackEvent)
 				protected.GET("/analytics/impact", analyticsHandler.GetImpactStats)
+
+				// 7. Collaboration 🤝
+				protected.GET("/trips/:id/collaborators", collabHandler.GetCollaborators)
+				protected.POST("/trips/:id/invite", collabHandler.InviteCollaborator)
+				protected.DELETE("/trips/:id/collaborators/:userId", collabHandler.RemoveCollaborator)
+				protected.PUT("/trips/:id/collaborators/:userId", collabHandler.UpdateCollaboratorRole)
+
+				// 8. Referral System 🎁
+				protected.POST("/referrals/claim", referralHandler.ClaimReferral)
+				protected.GET("/user/referral", referralHandler.GetReferralInfo)
+			}
+
+			// 9. Admin Dashboard 👑
+			admin := v1.Group("/admin")
+			admin.Use(middleware.AdminAuthMiddleware())
+			{
+				admin.GET("/stats", adminHandler.GetStats)
 			}
 		}
 	}

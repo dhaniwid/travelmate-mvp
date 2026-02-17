@@ -204,3 +204,107 @@ func TestCheckQuotaAvailability_Blocked(t *testing.T) {
 		t.Error("Expected allowed to be false when quota exceeded")
 	}
 }
+
+// Test: Bonus Quota Integration (Referral System)
+func TestCheckQuotaAvailability_WithBonusQuota(t *testing.T) {
+	mockRepo := &MockUserRepo{
+		GetUserByClerkIDFunc: func(ctx context.Context, id string) (*domain.User, error) {
+			return &domain.User{
+				UserID:           id,
+				SubscriptionTier: "FREE",
+				BonusTripQuota:   2, // 🎁 User earned 2 bonus trips from referrals
+			}, nil
+		},
+	}
+	mockSubRepo := &MockSubRepo{
+		GetQuotaFunc: func(ctx context.Context, userID, month string) (*domain.TripQuota, error) {
+			return &domain.TripQuota{
+				UserID:       userID,
+				TripsCreated: 4, // User has created 4 trips
+				QuotaLimit:   3, // Base limit is 3
+			}, nil
+		},
+	}
+	service := NewSubscriptionService(mockRepo, mockSubRepo, &MockPaymentGateway{})
+
+	// Effective limit should be 3 (base) + 2 (bonus) = 5
+	// User has created 4, so they should still be allowed
+	allowed, err := service.CheckQuotaAvailability(context.Background(), "user_with_bonus")
+
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if !allowed {
+		t.Error("Expected allowed to be true (4 trips < 5 effective limit)")
+	}
+}
+
+// Test: Bonus Quota in GetUserQuota
+func TestGetUserQuota_WithBonusQuota(t *testing.T) {
+	mockRepo := &MockUserRepo{
+		GetUserByClerkIDFunc: func(ctx context.Context, id string) (*domain.User, error) {
+			return &domain.User{
+				UserID:           id,
+				SubscriptionTier: "FREE",
+				BonusTripQuota:   3, // 🎁 User earned 3 bonus trips
+			}, nil
+		},
+	}
+	mockSubRepo := &MockSubRepo{
+		GetQuotaFunc: func(ctx context.Context, userID, month string) (*domain.TripQuota, error) {
+			return &domain.TripQuota{
+				UserID:       userID,
+				Month:        month,
+				TripsCreated: 2,
+				QuotaLimit:   3, // Base limit
+			}, nil
+		},
+	}
+	service := NewSubscriptionService(mockRepo, mockSubRepo, &MockPaymentGateway{})
+
+	quota, err := service.GetUserQuota(context.Background(), "user_bonus", "bonus@example.com")
+
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	// Effective limit = 3 (base) + 3 (bonus) = 6
+	// Remaining = 6 - 2 = 4
+	if quota.Remaining != 4 {
+		t.Errorf("Expected remaining 4 (6 effective - 2 created), got %d", quota.Remaining)
+	}
+}
+
+// Test: Bonus Quota Blocks When Exceeded
+func TestCheckQuotaAvailability_BonusQuotaExceeded(t *testing.T) {
+	mockRepo := &MockUserRepo{
+		GetUserByClerkIDFunc: func(ctx context.Context, id string) (*domain.User, error) {
+			return &domain.User{
+				UserID:           id,
+				SubscriptionTier: "FREE",
+				BonusTripQuota:   2, // Bonus quota
+			}, nil
+		},
+	}
+	mockSubRepo := &MockSubRepo{
+		GetQuotaFunc: func(ctx context.Context, userID, month string) (*domain.TripQuota, error) {
+			return &domain.TripQuota{
+				UserID:       userID,
+				TripsCreated: 5, // User has created 5 trips
+				QuotaLimit:   3, // Base limit is 3
+			}, nil
+		},
+	}
+	service := NewSubscriptionService(mockRepo, mockSubRepo, &MockPaymentGateway{})
+
+	// Effective limit = 3 + 2 = 5
+	// User has created 5, so they should be blocked
+	allowed, err := service.CheckQuotaAvailability(context.Background(), "user_exceeded")
+
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if allowed {
+		t.Error("Expected allowed to be false when effective quota exceeded (5 >= 5)")
+	}
+}

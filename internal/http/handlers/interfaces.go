@@ -33,3 +33,12 @@ type ISubscriptionService interface {
 	CheckQuotaAvailability(ctx context.Context, userID string) (bool, error)
 	IncrementQuota(ctx context.Context, userID string) error
 }
+
+type IReferralService interface {
+	ProcessReferral(ctx context.Context, newUserID, referralCode string) error
+	GetReferralStats(ctx context.Context, userID string) (*domain.ReferralStats, error)
+}
+
+type ICollaboratorRepository interface {
+	HasAccess(ctx context.Context, tripID, userID string) (bool, error)
+}

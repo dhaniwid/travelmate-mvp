@@ -263,8 +263,11 @@ func (s *SubscriptionService) GetUserQuota(ctx context.Context, userID, email st
 		return nil, err
 	}
 
+	// 🎁 REFERRAL BONUS: Add bonus quota from referrals
+	effectiveLimit := quota.QuotaLimit + user.BonusTripQuota
+
 	// Calculate remaining
-	quota.Remaining = quota.QuotaLimit - quota.TripsCreated
+	quota.Remaining = effectiveLimit - quota.TripsCreated
 	if quota.Remaining < 0 {
 		quota.Remaining = 0
 	}
@@ -315,7 +318,10 @@ func (s *SubscriptionService) CheckQuotaAvailability(ctx context.Context, userID
 		return false, err
 	}
 
-	if quota.TripsCreated >= quota.QuotaLimit {
+	// 🎁 REFERRAL BONUS: Include bonus quota from referrals
+	effectiveLimit := quota.QuotaLimit + user.BonusTripQuota
+
+	if quota.TripsCreated >= effectiveLimit {
 		return false, nil
 	}
 

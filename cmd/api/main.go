@@ -37,6 +37,8 @@ func main() {
 	prefRepo := repositories.NewPreferencesRepository(database)
 	placeLibRepo := repositories.NewPlaceLibraryRepository(database)
 	analyticsRepo := repositories.NewAnalyticsRepository(database) // NEW
+	collabRepo := repositories.NewCollaboratorRepository(database) // Collaboration 🤝
+	referralRepo := repositories.NewReferralRepository(database)   // Referral System 🎁
 
 	// 4. Services (Dependency Injection)
 	promptService := services.NewPromptService(database)
@@ -48,7 +50,9 @@ func main() {
 
 	subService := services.NewSubscriptionService(userRepo, subRepo, stripeClient)
 	discoveryService := services.NewDiscoveryService(destRepo)
-	analyticsService := services.NewAnalyticsService(analyticsRepo) // NEW
+	analyticsService := services.NewAnalyticsService(analyticsRepo)                   // NEW
+	collabService := services.NewCollaborationService(collabRepo, userRepo, tripRepo) // Collaboration 🤝
+	referralService := services.NewReferralService(referralRepo, userRepo)            // Referral System 🎁
 
 	var plannerEngine services.PlannerEngine
 	if cfg.OpenAIKey != "" {
@@ -69,16 +73,19 @@ func main() {
 		perfRepo, discoveryRepo, plannerEngine, locationService, transportService, imageSvc, pdfSvc, enrichService, subService)
 
 	// 5. Handlers
-	tripHandler := handlers.NewTripHandler(tripService, subService)
+	tripHandler := handlers.NewTripHandler(tripService, subService, collabRepo)
 	fbHandler := handlers.NewFeedbackHandler(tripService)
 	subHandler := handlers.NewSubscriptionHandler(subService)
 	webhookHandler := handlers.NewWebhookHandler(subService, stripeClient)
 	discoveryHandler := handlers.NewDiscoveryHandler(discoveryService)
 	prefHandler := handlers.NewPreferencesHandler(prefRepo)
 	analyticsHandler := handlers.NewAnalyticsHandler(analyticsService) // NEW
+	collabHandler := handlers.NewCollaborationHandler(collabService)   // Collaboration 🤝
+	adminHandler := handlers.NewAdminHandler(database)                 // Admin 👑
+	referralHandler := handlers.NewReferralHandler(referralService)    // Referral System 🎁
 
 	// 6. Router
-	r := http.SetupRouter(tripHandler, fbHandler, subHandler, webhookHandler, discoveryHandler, prefHandler, analyticsHandler, cfg.AllowOrigins, cfg.ClerkSecretKey)
+	r := http.SetupRouter(tripHandler, fbHandler, subHandler, webhookHandler, discoveryHandler, prefHandler, analyticsHandler, collabHandler, adminHandler, referralHandler, cfg.AllowOrigins, cfg.ClerkSecretKey)
 
 	// 7. Run
 	log.Printf("Server running on port %s", cfg.Port)
