@@ -81,6 +81,8 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 	var enrichmentStatus sql.NullString
 	var itineraryStatus sql.NullString
 
+	var suggestionsCacheRaw []byte
+
 	err := r.DB.QueryRowContext(ctx, query, id).Scan(
 		&trip.ID,
 		&userID,
@@ -99,7 +101,7 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 		&enrichmentStatus,
 		&itineraryStatus,
 		&trip.AIEditsUsed,
-		&trip.SuggestionsCache,
+		&suggestionsCacheRaw,
 	)
 
 	if err == sql.ErrNoRows {
@@ -108,6 +110,8 @@ func (r *TripRepository) GetTripWithPlan(ctx context.Context, id string) (*domai
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan trip: %w", err)
 	}
+
+	trip.SuggestionsCache = json.RawMessage(suggestionsCacheRaw)
 
 	// Mapping NullString ke Struct
 	if userID.Valid {
@@ -272,10 +276,16 @@ func (r *TripRepository) SaveTripPlan(ctx context.Context, trip domain.Trip, pla
             user_id = COALESCE(NULLIF(EXCLUDED.user_id, ''), trips.user_id)
     `
 
+	// Defensive check for SuggestionsCache (prevent pq: invalid input syntax for type json)
+	var suggestionsCache interface{} = trip.SuggestionsCache
+	if len(trip.SuggestionsCache) == 0 {
+		suggestionsCache = nil
+	}
+
 	_, err = r.DB.ExecContext(ctx, query,
 		trip.ID, trip.UserID, trip.LocationID, trip.Origin, trip.Destination,
 		trip.StartDate, trip.TripDays, trip.Style, trip.Budget, planJson,
-		trip.EnrichmentStatus, trip.ItineraryStatus, trip.AIEditsUsed, trip.SuggestionsCache)
+		trip.EnrichmentStatus, trip.ItineraryStatus, trip.AIEditsUsed, suggestionsCache)
 
 	return err
 }
@@ -350,6 +360,12 @@ func (r *TripRepository) Create(ctx context.Context, trip *domain.Trip) error {
 	`
 	log.Printf("DEBUG REPO CREATE: Trip %s EnrichmentStatus: '%s'", trip.ID, trip.EnrichmentStatus)
 
+	// Defensive check for SuggestionsCache
+	var suggestionsCache interface{} = trip.SuggestionsCache
+	if len(trip.SuggestionsCache) == 0 {
+		suggestionsCache = nil
+	}
+
 	_, err = r.DB.ExecContext(ctx, query,
 		trip.ID,               // $1
 		trip.UserID,           // $2
@@ -365,7 +381,7 @@ func (r *TripRepository) Create(ctx context.Context, trip *domain.Trip) error {
 		trip.EnrichmentStatus, // $12
 		trip.ItineraryStatus,  // $13
 		trip.AIEditsUsed,      // $14
-		trip.SuggestionsCache, // $15
+		suggestionsCache,      // $15
 	)
 
 	if err != nil {
@@ -408,6 +424,8 @@ func (r *TripRepository) GetByID(ctx context.Context, id string) (*domain.Trip, 
 	var trip domain.Trip
 	var enrichmentStatus sql.NullString
 	var itineraryStatus sql.NullString
+	var suggestionsCacheRaw []byte
+
 	// Perhatikan: Tidak ada scan ke &planDataRaw
 	err := r.DB.QueryRowContext(ctx, query, id).Scan(
 		&trip.ID,
@@ -426,7 +444,7 @@ func (r *TripRepository) GetByID(ctx context.Context, id string) (*domain.Trip, 
 		&enrichmentStatus,
 		&itineraryStatus,
 		&trip.AIEditsUsed,
-		&trip.SuggestionsCache,
+		&suggestionsCacheRaw,
 	)
 
 	if err == sql.ErrNoRows {
@@ -435,6 +453,8 @@ func (r *TripRepository) GetByID(ctx context.Context, id string) (*domain.Trip, 
 	if err != nil {
 		return nil, err
 	}
+
+	trip.SuggestionsCache = json.RawMessage(suggestionsCacheRaw)
 
 	if enrichmentStatus.Valid {
 		trip.EnrichmentStatus = enrichmentStatus.String
