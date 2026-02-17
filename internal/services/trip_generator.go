@@ -38,6 +38,7 @@ func (s *TripService) GenerateTripStream(ctx context.Context, trip domain.Trip, 
 	// 3. Check Cache (Fast Path)
 	cached, err := s.checkCache(ctx, trip, eventChan)
 	if cached {
+		s.PerfRepo.SaveMetric(ctx, "Trip:CacheHit", time.Since(startTime), trip.Destination, "DB_CACHE")
 		doneChan <- true
 		log.Printf("🏁 [FAST PATH] UI Ready in: %v", time.Since(startTime))
 		return
@@ -65,6 +66,7 @@ func (s *TripService) GenerateTripStream(ctx context.Context, trip domain.Trip, 
 	}(trip.ID)
 
 	// 8. Finalize
+	s.PerfRepo.SaveMetric(ctx, "Trip:FullGeneration", time.Since(startTime), trip.Destination, "AI_PARALLEL")
 	log.Printf("🏁 [TOTAL TIME] UI Ready in: %v", time.Since(startTime))
 	doneChan <- true
 }
@@ -263,7 +265,7 @@ func (s *TripService) GetActivityAlternatives(ctx context.Context, dest, activit
 }
 
 // GetActivityAlternativesByIndex (M-128): Optimized index-based replacement with persistent caching
-func (s *TripService) GetActivityAlternativesByIndex(ctx context.Context, tripID string, dayIdx, actIdx int) ([]domain.ActivityAlternative, error) {
+func (s *TripService) GetActivityAlternativesByIndex(ctx context.Context, tripID string, dayIdx, actIdx int, force bool) ([]domain.ActivityAlternative, error) {
 	// 1. Fetch Trip
 	tripAndPlan, err := s.TripRepo.GetTripWithPlan(ctx, tripID)
 	if err != nil {
@@ -278,7 +280,8 @@ func (s *TripService) GetActivityAlternativesByIndex(ctx context.Context, tripID
 	cacheKey := fmt.Sprintf("day%d_idx%d", dayIdx+1, actIdx)
 	var suggestionsCache map[string][]domain.ActivityAlternative
 
-	if len(tripAndPlan.Trip.SuggestionsCache) > 0 {
+	// If not forced, check the persistent cache
+	if !force && len(tripAndPlan.Trip.SuggestionsCache) > 0 {
 		if err := json.Unmarshal(tripAndPlan.Trip.SuggestionsCache, &suggestionsCache); err == nil {
 			if cachedAlts, ok := suggestionsCache[cacheKey]; ok && len(cachedAlts) > 0 {
 				log.Printf("🎯 [CACHE HIT] Returning cached alternatives for trip %s, key %s", tripID, cacheKey)
@@ -299,11 +302,13 @@ func (s *TripService) GetActivityAlternativesByIndex(ctx context.Context, tripID
 	activity := day.Activities[actIdx]
 
 	// 4. Call AI with specific context
+	startTime := time.Now()
 	tags := []string{activity.Type}
 	alts, err := s.Planner.GenerateActivityReplacement(ctx, tripAndPlan.Trip.Destination, activity.Activity, tags)
 	if err != nil {
 		return nil, err
 	}
+	s.PerfRepo.SaveMetric(ctx, "Activity:Replacement", time.Since(startTime), tripAndPlan.Trip.Destination, "OPENAI")
 
 	// 5. UPDATE CACHE & SAVE
 	if suggestionsCache == nil {
@@ -570,17 +575,6 @@ func (s *TripService) GenerateTripAsync(ctx context.Context, trip domain.Trip) (
 		trip.ID = uuid.New().String()
 	}
 
-	// 🛡️ SECURITY: REDUNDANT QUOTA CHECK (Final Guard before AI)
-	if trip.UserID != "" && trip.UserID != "guest" {
-		allowed, err := s.SubService.CheckQuotaAvailability(ctx, trip.UserID)
-		if err != nil {
-			return nil, fmt.Errorf("quota verification failed: %w", err)
-		}
-		if !allowed {
-			return nil, fmt.Errorf("quota_exceeded: monthly limit reached")
-		}
-	}
-
 	// 2. Resolve Destination (Surprise Me)
 	if strings.EqualFold(trip.Destination, "Surprise") {
 		curatedCities := []string{
@@ -666,8 +660,14 @@ func (s *TripService) GenerateTripAsync(ctx context.Context, trip domain.Trip) (
 	}
 
 	log.Printf("📍 [SKELETON-FIRST] Skeleton Plan saved for trip %s. Response time: %v", trip.ID, time.Since(startTime))
+	s.PerfRepo.SaveMetric(ctx, "Trip:ProgressiveInit", time.Since(startTime), trip.Destination, "SKELETON_ONLY")
 
-	// No background EnrichmentPipeline here! Everything is Lazy Load now.
+	// Trigger Background Enrichment (Photos, PlaceIDs, Verified Coords)
+	go func(tid string) {
+		enrichCtx := context.Background()
+		s.EnrichmentSvc.EnrichTrip(enrichCtx, tid)
+	}(trip.ID)
+
 	return &trip, nil
 }
 

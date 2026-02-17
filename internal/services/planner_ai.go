@@ -781,51 +781,15 @@ func (p *AIPlanner) GenerateTripSkeleton(ctx context.Context, trip domain.Trip) 
 	log.Printf("⏱️ [PERF] TRIP_SKELETON Request completed in: %v", time.Since(startTime))
 
 	cleanData := cleanJSON(rawResponse)
-
-	// Custom struct for skeleton decoding to handle "geo_hint"
-	type skeletonActivity struct {
-		domain.Activity
-		GeoHint struct {
-			Lat float64 `json:"lat"`
-			Lng float64 `json:"lng"`
-		} `json:"geo_hint"`
-	}
-
-	type skeletonDay struct {
-		Day        int                `json:"day"`
-		Title      string             `json:"title"`
-		Activities []skeletonActivity `json:"activities"`
-	}
-
-	type skeletonResponse struct {
-		Itinerary []skeletonDay `json:"itinerary"`
-	}
-
-	var rawResp skeletonResponse
-	if err := json.Unmarshal(cleanData, &rawResp); err != nil {
+	var resp domain.ItineraryResponse
+	if err := json.Unmarshal(cleanData, &resp); err != nil {
 		return domain.ItineraryResponse{}, fmt.Errorf("skeleton parse error: %w", err)
 	}
 
-	// Map back to domain.ItineraryResponse
-	resp := domain.ItineraryResponse{
-		Itinerary: make([]domain.ItineraryDay, len(rawResp.Itinerary)),
-	}
-
-	for i, day := range rawResp.Itinerary {
-		resp.Itinerary[i] = domain.ItineraryDay{
-			Day:        day.Day,
-			Title:      day.Title,
-			Activities: make([]domain.Activity, len(day.Activities)),
-		}
-		for j, act := range day.Activities {
-			domainAct := act.Activity
-			// Seed coordinates from geo_hint
-			lat := act.GeoHint.Lat
-			lng := act.GeoHint.Lng
-			domainAct.Latitude = &lat
-			domainAct.Longitude = &lng
-			domainAct.IsSkeleton = true
-			resp.Itinerary[i].Activities[j] = domainAct
+	// Flag activities as skeleton to trigger frontend lazy-loading
+	for i := range resp.Itinerary {
+		for j := range resp.Itinerary[i].Activities {
+			resp.Itinerary[i].Activities[j].IsSkeleton = true
 		}
 	}
 

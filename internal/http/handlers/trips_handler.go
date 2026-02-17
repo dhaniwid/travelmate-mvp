@@ -479,7 +479,8 @@ func (h *TripHandler) GetActivityAlternativesByIndex(c *gin.Context) {
 	dayIdx, _ := strconv.Atoi(c.Param("day_index"))
 	actIdx, _ := strconv.Atoi(c.Param("activity_index"))
 
-	results, err := h.Service.GetActivityAlternativesByIndex(c.Request.Context(), tripID, dayIdx, actIdx)
+	refresh := c.Query("refresh") == "true"
+	results, err := h.Service.GetActivityAlternativesByIndex(c.Request.Context(), tripID, dayIdx, actIdx, refresh)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, domain.APIError{Code: "internal_error", Message: err.Error()})
 		return

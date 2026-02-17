@@ -14,7 +14,7 @@ type ITripService interface {
 	DeleteUserTrip(ctx context.Context, tripID string, userID string) error
 	CountUserTrips(ctx context.Context, userID string) (int, error)
 	GetActivityAlternatives(ctx context.Context, dest, orig, loc string, tags []string) ([]domain.ActivityAlternative, error)
-	GetActivityAlternativesByIndex(ctx context.Context, tripID string, dayIdx, actIdx int) ([]domain.ActivityAlternative, error)
+	GetActivityAlternativesByIndex(ctx context.Context, tripID string, dayIdx, actIdx int, force bool) ([]domain.ActivityAlternative, error)
 	SwapActivity(ctx context.Context, tripID string, dayIdx, actIdx int, alt domain.ActivityAlternative) error
 	GetPackingList(ctx context.Context, tripID string) ([]domain.PackingCategory, error)
 	GetDestinationDiscovery(ctx context.Context, city string) (*domain.DiscoveryResponse, error)

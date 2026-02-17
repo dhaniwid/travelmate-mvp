@@ -145,10 +145,12 @@ func (s *TripService) GetDestinationDiscovery(ctx context.Context, city string) 
 	log.Printf("⛏️ Mining New Data: Asking OpenAI for '%s'...", cleanCity)
 
 	// Panggil AI Planner
+	startTime := time.Now()
 	resp, err := s.Planner.GetDiscoveryInfo(ctx, cleanCity)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get discovery info: %w", err)
 	}
+	s.PerfRepo.SaveMetric(ctx, "Discovery:Mining", time.Since(startTime), cleanCity, "OPENAI")
 
 	// =========================================================
 	// 💾 STEP 3: SIMPAN KE DATABASE (Future Asset)

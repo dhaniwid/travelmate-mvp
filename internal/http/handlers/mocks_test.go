@@ -91,7 +91,7 @@ func (m *MockTripService) GetActivityAlternatives(ctx context.Context, dest, act
 	return nil, nil
 }
 
-func (m *MockTripService) GetActivityAlternativesByIndex(ctx context.Context, tripID string, dayIdx, actIdx int) ([]domain.ActivityAlternative, error) {
+func (m *MockTripService) GetActivityAlternativesByIndex(ctx context.Context, tripID string, dayIdx, actIdx int, force bool) ([]domain.ActivityAlternative, error) {
 	return nil, nil
 }
 
