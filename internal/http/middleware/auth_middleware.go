@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"os"
 
@@ -56,7 +57,8 @@ func AuthMiddleware(secretKey string) gin.HandlerFunc {
 		// If CLERK_PROXY_URL is set (Production with Custom Domain), we use it to allow custom issuer.
 		// If empty (Localhost/Dev), we skip it so standard .clerk.accounts.dev tokens are accepted.
 		verifyParams := &jwt.VerifyParams{
-			Token: sessionToken,
+			Token:  sessionToken,
+			Leeway: 5 * time.Second, // Tolerate up to 5s clock skew between client and server
 		}
 
 		proxyURL := os.Getenv("CLERK_PROXY_URL")
@@ -148,7 +150,10 @@ func OptionalAuthMiddleware(secretKey string) gin.HandlerFunc {
 		sessionToken := parts[1]
 
 		proxyURL := os.Getenv("CLERK_PROXY_URL")
-		verifyParams := &jwt.VerifyParams{Token: sessionToken}
+		verifyParams := &jwt.VerifyParams{
+			Token:  sessionToken,
+			Leeway: 5 * time.Second, // Tolerate up to 5s clock skew between client and server
+		}
 		if proxyURL != "" {
 			verifyParams.ProxyURL = &proxyURL
 		}

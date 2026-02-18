@@ -13,6 +13,7 @@ type MockUserRepo struct {
 	UpsertUserFunc         func(ctx context.Context, user *domain.User) error
 	UpdateSubscriptionFunc func(ctx context.Context, userID, tier, status, stripeCustID, stripeSubID string) error
 	GetUserByStripeIDFunc  func(ctx context.Context, stripeCustID string) (*domain.User, error)
+	GrantProDaysFunc       func(ctx context.Context, userID string, days int) error
 }
 
 func (m *MockUserRepo) GetUserByClerkID(ctx context.Context, id string) (*domain.User, error) {
@@ -38,6 +39,13 @@ func (m *MockUserRepo) GetUserByStripeID(ctx context.Context, stripeCustID strin
 		return m.GetUserByStripeIDFunc(ctx, stripeCustID)
 	}
 	return nil, nil
+}
+
+func (m *MockUserRepo) GrantProDays(ctx context.Context, userID string, days int) error {
+	if m.GrantProDaysFunc != nil {
+		return m.GrantProDaysFunc(ctx, userID, days)
+	}
+	return nil
 }
 
 type MockSubRepo struct {

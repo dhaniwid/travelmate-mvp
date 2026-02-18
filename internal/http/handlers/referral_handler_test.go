@@ -15,8 +15,11 @@ import (
 // --- Mock Referral Service ---
 
 type MockReferralService struct {
-	ProcessReferralFunc  func(ctx context.Context, newUserID, referralCode string) error
-	GetReferralStatsFunc func(ctx context.Context, userID string) (*domain.ReferralStats, error)
+	ProcessReferralFunc     func(ctx context.Context, newUserID, referralCode string) error
+	GetReferralStatsFunc    func(ctx context.Context, userID string) (*domain.ReferralStats, error)
+	GetLeaderboardFunc      func(ctx context.Context, limit int) ([]domain.LeaderboardEntry, error)
+	GetUserRankFunc         func(ctx context.Context, userID string) (*domain.LeaderboardEntry, error)
+	GetUserAchievementsFunc func(ctx context.Context, userID string) ([]domain.Achievement, error)
 }
 
 func (m *MockReferralService) ProcessReferral(ctx context.Context, newUserID, referralCode string) error {
@@ -35,6 +38,27 @@ func (m *MockReferralService) GetReferralStats(ctx context.Context, userID strin
 		TotalReferrals: 3,
 		BonusQuota:     3,
 	}, nil
+}
+
+func (m *MockReferralService) GetLeaderboard(ctx context.Context, limit int) ([]domain.LeaderboardEntry, error) {
+	if m.GetLeaderboardFunc != nil {
+		return m.GetLeaderboardFunc(ctx, limit)
+	}
+	return nil, nil
+}
+
+func (m *MockReferralService) GetUserRank(ctx context.Context, userID string) (*domain.LeaderboardEntry, error) {
+	if m.GetUserRankFunc != nil {
+		return m.GetUserRankFunc(ctx, userID)
+	}
+	return nil, nil
+}
+
+func (m *MockReferralService) GetUserAchievements(ctx context.Context, userID string) ([]domain.Achievement, error) {
+	if m.GetUserAchievementsFunc != nil {
+		return m.GetUserAchievementsFunc(ctx, userID)
+	}
+	return nil, nil
 }
 
 // --- Tests ---

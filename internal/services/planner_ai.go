@@ -24,14 +24,15 @@ const (
 )
 
 type AIPlanner struct {
-	client    *openai.Client
-	promptSvc *PromptService
-	prefRepo  *repositories.PreferencesRepository // Concrete type
+	client     *openai.Client
+	promptSvc  *PromptService
+	prefRepo   *repositories.PreferencesRepository
+	amadeusSvc *AmadeusService // NEW
 }
 
-func NewAIPlanner(apiKey string, promptSvc *PromptService, prefRepo *repositories.PreferencesRepository) *AIPlanner {
+func NewAIPlanner(apiKey string, promptSvc *PromptService, prefRepo *repositories.PreferencesRepository, amadeusSvc *AmadeusService) *AIPlanner {
 	client := openai.NewClient(apiKey)
-	return &AIPlanner{client: client, promptSvc: promptSvc, prefRepo: prefRepo}
+	return &AIPlanner{client: client, promptSvc: promptSvc, prefRepo: prefRepo, amadeusSvc: amadeusSvc}
 }
 
 // ============================================================================
@@ -40,6 +41,7 @@ func NewAIPlanner(apiKey string, promptSvc *PromptService, prefRepo *repositorie
 
 // GetDiscoveryInfo Fitur "Dream/Inspiration"
 func (p *AIPlanner) GetDiscoveryInfo(ctx context.Context, city string) (*domain.DiscoveryResponse, error) {
+	// ... (unchanged)
 	// 1. Siapkan Data untuk Template ({{.Destination}})
 	inputData := map[string]string{
 		"Destination": city,
@@ -54,7 +56,6 @@ func (p *AIPlanner) GetDiscoveryInfo(ctx context.Context, city string) (*domain.
 	}
 
 	// 4. Cleaning & Parsing (Hybrid: Object/Array safe)
-	// Karena prompt discovery_agent outputnya Object, kita langsung unmarshal
 	cleanData := cleanJSON(rawResponse)
 
 	var resp domain.DiscoveryResponse
@@ -124,12 +125,9 @@ func (p *AIPlanner) GenerateAddActivitySuggestions(ctx context.Context, destinat
 func (p *AIPlanner) GenerateOnlyItinerary(ctx context.Context, trip domain.Trip) (domain.ItineraryResponse, error) {
 	var rawResponse json.RawMessage
 
-	// Performance monitoring
 	startTime := time.Now()
 	log.Printf("⏱️ [PERF] Starting Itinerary AI Request for %s", trip.Destination)
 
-	// Data for Template
-	// FIX: Template expects {{.Trip.TripDays}}, so we must wrap it.
 	inputData := map[string]interface{}{
 		"Trip": trip,
 	}
@@ -144,11 +142,9 @@ func (p *AIPlanner) GenerateOnlyItinerary(ctx context.Context, trip domain.Trip)
 
 	cleanData := cleanJSON(rawResponse)
 
-	// Define strict schema locally to capture everything
 	var resp domain.ItineraryResponse
 	if err := json.Unmarshal(cleanData, &resp); err != nil {
 		fmt.Printf("⚠️ [AI DEBUG] Itinerary Unmarshal failed: %v\n", err)
-		// Fallback check if it is direct array (old format)
 		var directArray []domain.ItineraryDay
 		if err2 := json.Unmarshal(cleanData, &directArray); err2 == nil {
 			return domain.ItineraryResponse{Itinerary: directArray}, nil
@@ -163,7 +159,6 @@ func (p *AIPlanner) GenerateOnlyItinerary(ctx context.Context, trip domain.Trip)
 func (p *AIPlanner) GenerateEditorial(ctx context.Context, trip domain.Trip) (domain.EditorialResponse, error) {
 	var rawResponse json.RawMessage
 
-	// Performance monitoring
 	startTime := time.Now()
 	log.Printf("⏱️ [PERF] Starting Editorial AI Request for %s", trip.Destination)
 
@@ -193,13 +188,11 @@ func (p *AIPlanner) GenerateTransportAndStay(ctx context.Context, trip domain.Tr
 		BudgetBreakdown        domain.BudgetBreakdown       `json:"budget_breakdown"`
 	}
 
-	// 1. Request ke AI - Use specialized logistics prompt
 	if err := p.requestAI(ctx, "planner_logistics_system", trip, &logisticsResp); err != nil {
 		log.Printf("❌ Logistics AI Error: %v", err)
 		return domain.TripPlan{}, err
 	}
 
-	// 2. Return TripPlan (Map dari temporary struct ke domain)
 	return domain.TripPlan{
 		TripID:               trip.ID,
 		ArrivalGuide:         &logisticsResp.ArrivalGuide,
@@ -210,7 +203,6 @@ func (p *AIPlanner) GenerateTransportAndStay(ctx context.Context, trip domain.Tr
 
 // GenerateAlternatives Fitur "Activity Alternatives"
 func (p *AIPlanner) GenerateAlternatives(ctx context.Context, dest, activity, location string, tags []string) ([]domain.ActivityAlternative, error) {
-	// 1. Siapkan Data untuk Template Prompt
 	inputData := map[string]interface{}{
 		"Destination": dest,
 		"Activity":    activity,
@@ -218,7 +210,6 @@ func (p *AIPlanner) GenerateAlternatives(ctx context.Context, dest, activity, lo
 		"Tags":        tags,
 	}
 
-	// 2. Request AI
 	var rawResponse json.RawMessage
 	if err := p.requestAI(ctx, "planner_alternatives_system", inputData, &rawResponse); err != nil {
 		return nil, fmt.Errorf("failed to generate alternatives: %w", err)
@@ -229,14 +220,12 @@ func (p *AIPlanner) GenerateAlternatives(ctx context.Context, dest, activity, lo
 
 // GenerateActivityReplacement (M-128): High-speed alternative generation
 func (p *AIPlanner) GenerateActivityReplacement(ctx context.Context, dest, activity string, tags []string) ([]domain.ActivityAlternative, error) {
-	// 1. Prepare Data (Minimalist for Speed)
 	inputData := map[string]interface{}{
 		"Destination": dest,
 		"Activity":    activity,
 		"Tags":        tags,
 	}
 
-	// 2. Request AI with optimized "alternatives" system prompt
 	var rawResponse json.RawMessage
 	if err := p.requestAI(ctx, "planner_alternatives_system", inputData, &rawResponse); err != nil {
 		return nil, fmt.Errorf("AI replacement failed: %w", err)
@@ -247,7 +236,6 @@ func (p *AIPlanner) GenerateActivityReplacement(ctx context.Context, dest, activ
 		return nil, err
 	}
 
-	// 3. Ensure we only return 3 alternatives (Speed & UI constraint)
 	if len(alternatives) > 3 {
 		alternatives = alternatives[:3]
 	}
@@ -255,7 +243,7 @@ func (p *AIPlanner) GenerateActivityReplacement(ctx context.Context, dest, activ
 	return alternatives, nil
 }
 
-// --- AI PARSING HELPERS (M-128) ---
+// --- AI PARSING HELPERS ---
 
 type aiAlt struct {
 	Activity     string `json:"activity"`
@@ -273,17 +261,14 @@ type aiWrapper struct {
 	Activities   []aiAlt `json:"activities"`
 }
 
-// parseAlternatives (M-128): Robust parser to handle AI output variations
 func (p *AIPlanner) parseAlternatives(raw []byte) ([]domain.ActivityAlternative, error) {
 	cleanData := cleanJSON(raw)
 
-	// Try unmarshaling as direct Array (standard for "PURE JSON ARRAY" prompts)
 	var directArray []aiAlt
 	if err := json.Unmarshal(cleanData, &directArray); err == nil && len(directArray) > 0 {
 		return p.mapToDomainAlternatives(directArray), nil
 	}
 
-	// Fallback: Try unmarshaling as Wrapper Object
 	var wrapper aiWrapper
 	if err := json.Unmarshal(cleanData, &wrapper); err == nil {
 		if len(wrapper.Alternatives) > 0 {
@@ -303,7 +288,6 @@ func (p *AIPlanner) parseAlternatives(raw []byte) ([]domain.ActivityAlternative,
 func (p *AIPlanner) mapToDomainAlternatives(rawAlts []aiAlt) []domain.ActivityAlternative {
 	domainAlts := make([]domain.ActivityAlternative, len(rawAlts))
 	for i, r := range rawAlts {
-		// 1. Title/Activity Mapping
 		title := r.Activity
 		if title == "" {
 			title = r.Title
@@ -312,7 +296,6 @@ func (p *AIPlanner) mapToDomainAlternatives(rawAlts []aiAlt) []domain.ActivityAl
 			title = r.PlaceName
 		}
 
-		// 2. Type/Category Mapping
 		aType := r.Type
 		if aType == "" {
 			aType = r.Category
@@ -331,14 +314,12 @@ func (p *AIPlanner) mapToDomainAlternatives(rawAlts []aiAlt) []domain.ActivityAl
 	return domainAlts
 }
 
-// GeneratePackingList Membuat daftar bawaan cerdas berdasarkan destinasi, durasi, dan style trip
+// GeneratePackingList Membuat daftar bawaan cerdas
 func (p *AIPlanner) GeneratePackingList(ctx context.Context, trip domain.Trip) ([]domain.PackingCategory, error) {
-	// 1. Siapkan struct wrapper untuk menangkap JSON output
 	var result struct {
 		PackingList []domain.PackingCategory `json:"packing_list"`
 	}
 
-	// 2. Request ke OpenAI
 	err := p.requestAI(ctx, "planner_packing_system", trip, &result)
 	if err != nil {
 		log.Printf("❌ Packing List Generation Error: %v", err)
@@ -378,8 +359,21 @@ func (p *AIPlanner) GeneratePlan(ctx context.Context, trip domain.Trip) (domain.
 	var fullResponse domain.AIPlannerResponse
 	if err := json.Unmarshal(cleanData, &fullResponse); err != nil {
 		fmt.Printf("❌ [AI DEBUG] Full Plan Unmarshal Failed: %v\n", err)
-		// Try to recover just itinerary if possible, or fallback
 		return p.generateMockPlan(trip, nil), nil
+	}
+
+	// 3. [NEW] Ensure Destination Airport is populated
+	destAirport := fullResponse.DestinationAirport
+	if destAirport == "" && p.amadeusSvc != nil {
+		log.Printf("🔍 Destination Airport missing from AI. Searching Amadeus for '%s'...", trip.Destination)
+		locs, err := p.amadeusSvc.SearchLocations(ctx, trip.Destination)
+		if err == nil && len(locs) > 0 {
+			code := locs[0].IataCode
+			destAirport = code
+			log.Printf("✅ Found Airport Code: %s", code)
+		} else {
+			log.Printf("⚠️ Failed to find airport code: %v", err)
+		}
 	}
 
 	// Map to Domain TripPlan
@@ -399,10 +393,8 @@ func (p *AIPlanner) GeneratePlan(ctx context.Context, trip domain.Trip) (domain.
 		CulinarySignature:    fullResponse.CulinarySignature,
 		HiddenGem:            fullResponse.HiddenGem,
 		HistorySnippet:       fullResponse.HistorySnippet,
+		DestinationAirport:   destAirport, // Set the populated airport code
 	}
-
-	// If parts are missing, we might want to fill them with dummy data or leave empty
-	// For now, return what we got.
 
 	return plan, nil
 }

@@ -59,7 +59,8 @@ type TripPlan struct {
 	ArrivalGuide         *ArrivalGuide         `json:"arrival_guide"` // New Field
 	MorningBriefing      string                `json:"morning_briefing"`
 	Highlights           []TripHighlight       `json:"highlights"`
-	Logistics            *LogisticsData        `json:"logistics"` // NEW: M-124
+	Logistics            *LogisticsData        `json:"logistics"`                     // NEW: M-124
+	DestinationAirport   string                `json:"destination_airport,omitempty"` // NEW: Flight Guardian
 
 	// --- Discovery Features (Merged from DiscoveryView) ---
 	Tagline           string              `json:"tagline"`
@@ -280,6 +281,8 @@ type AIPlannerResponse struct {
 	CulinarySignature    []CulinarySignature   `json:"culinary_signature"`
 	HiddenGem            *HiddenGem            `json:"hidden_gem"`
 	HistorySnippet       string                `json:"history_snippet"`
+	Tags            string                `json:"tags"`
+	DestinationAirport string                `json:"destination_airport"` // NEW
 }
 
 type TripVibeResponse struct {

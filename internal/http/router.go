@@ -22,6 +22,8 @@ func SetupRouter(
 	collabHandler *handlers.CollaborationHandler,
 	adminHandler *handlers.AdminHandler, // Admin 👑
 	referralHandler *handlers.ReferralHandler, // Referral System 🎁
+	flightHandler *handlers.FlightHandler, // Flight Guardian ✈️
+	chatHandler *handlers.ChatHandler, // Miru Chat (RAG) 💬
 	allowOrigins string,
 	clerkKey string,
 ) *gin.Engine {
@@ -124,9 +126,23 @@ func SetupRouter(
 				// 8. Referral System 🎁
 				protected.POST("/referrals/claim", referralHandler.ClaimReferral)
 				protected.GET("/user/referral", referralHandler.GetReferralInfo)
+
+				// 8.1 Gamification (Phase 3) 🏆
+				protected.GET("/referrals/leaderboard", referralHandler.GetLeaderboard)
+				protected.GET("/user/achievements", referralHandler.GetUserAchievements)
+
+				// 9. Flight Guardian ✈️
+				protected.POST("/trips/:id/track-flights", flightHandler.TrackFlight)
+				protected.GET("/trips/:id/alerts", flightHandler.GetTripAlerts)
+				protected.DELETE("/alerts/:id", flightHandler.DeactivateAlert)
+				protected.GET("/flights/locations", flightHandler.SearchLocations) // New: Airport Autocomplete
+				protected.GET("/flights/search", flightHandler.SearchFlightOffers) // New: Flight Search
+
+				// 10. Miru Chat (RAG) 💬
+				protected.POST("/chat/completion", chatHandler.ChatCompletion)
 			}
 
-			// 9. Admin Dashboard 👑
+			// 10. Admin Dashboard 👑
 			admin := v1.Group("/admin")
 			admin.Use(middleware.AdminAuthMiddleware())
 			{

@@ -13,9 +13,14 @@ import (
 type MockReferralRepo struct {
 	CreateReferralFunc        func(ctx context.Context, referral *domain.Referral) error
 	GetUserByReferralCodeFunc func(ctx context.Context, code string) (*domain.User, error)
-	IncrementBonusQuotaFunc   func(ctx context.Context, userID string) error
+	IncrementBonusQuotaFunc   func(ctx context.Context, userID string, amount int) error
 	CheckReferralExistsFunc   func(ctx context.Context, referredUserID string) (bool, error)
 	GetReferralCountFunc      func(ctx context.Context, referrerID string) (int, error)
+	GetLeaderboardFunc        func(ctx context.Context, limit int) ([]domain.LeaderboardEntry, error)
+	GetUserRankFunc           func(ctx context.Context, userID string) (*domain.LeaderboardEntry, error)
+	GetUserAchievementsFunc   func(ctx context.Context, userID string) ([]domain.Achievement, error)
+	UnlockAchievementFunc     func(ctx context.Context, userID string, achievement domain.Achievement) error
+	RefreshLeaderboardFunc    func(ctx context.Context) error
 }
 
 func (m *MockReferralRepo) CreateReferral(ctx context.Context, referral *domain.Referral) error {
@@ -36,9 +41,9 @@ func (m *MockReferralRepo) GetUserByReferralCode(ctx context.Context, code strin
 	return nil, nil
 }
 
-func (m *MockReferralRepo) IncrementBonusQuota(ctx context.Context, userID string) error {
+func (m *MockReferralRepo) IncrementBonusQuota(ctx context.Context, userID string, amount int) error {
 	if m.IncrementBonusQuotaFunc != nil {
-		return m.IncrementBonusQuotaFunc(ctx, userID)
+		return m.IncrementBonusQuotaFunc(ctx, userID, amount)
 	}
 	return nil
 }
@@ -55,6 +60,41 @@ func (m *MockReferralRepo) GetReferralCount(ctx context.Context, referrerID stri
 		return m.GetReferralCountFunc(ctx, referrerID)
 	}
 	return 0, nil
+}
+
+func (m *MockReferralRepo) GetLeaderboard(ctx context.Context, limit int) ([]domain.LeaderboardEntry, error) {
+	if m.GetLeaderboardFunc != nil {
+		return m.GetLeaderboardFunc(ctx, limit)
+	}
+	return nil, nil
+}
+
+func (m *MockReferralRepo) GetUserRank(ctx context.Context, userID string) (*domain.LeaderboardEntry, error) {
+	if m.GetUserRankFunc != nil {
+		return m.GetUserRankFunc(ctx, userID)
+	}
+	return nil, nil
+}
+
+func (m *MockReferralRepo) GetUserAchievements(ctx context.Context, userID string) ([]domain.Achievement, error) {
+	if m.GetUserAchievementsFunc != nil {
+		return m.GetUserAchievementsFunc(ctx, userID)
+	}
+	return nil, nil
+}
+
+func (m *MockReferralRepo) UnlockAchievement(ctx context.Context, userID string, achievement domain.Achievement) error {
+	if m.UnlockAchievementFunc != nil {
+		return m.UnlockAchievementFunc(ctx, userID, achievement)
+	}
+	return nil
+}
+
+func (m *MockReferralRepo) RefreshLeaderboard(ctx context.Context) error {
+	if m.RefreshLeaderboardFunc != nil {
+		return m.RefreshLeaderboardFunc(ctx)
+	}
+	return nil
 }
 
 // --- Tests ---
@@ -77,13 +117,13 @@ func TestGenerateReferralCode(t *testing.T) {
 			t.Errorf("Code should start with 'MIRU-', got %s", code)
 		}
 
-		// Check length (MIRU- = 5 chars + 4 chars = 9 total)
-		if len(code) != 9 {
-			t.Errorf("Code should be 9 characters, got %d: %s", len(code), code)
+		// Check length (MIRU- = 5 chars + 6 chars = 11 total)
+		if len(code) != 11 {
+			t.Errorf("Code should be 11 characters, got %d: %s", len(code), code)
 		}
 
 		// Check for valid characters (no confusing chars)
-		suffix := code[5:] // Get XXXX part
+		suffix := code[5:] // Get XXXXXX part
 		for _, char := range suffix {
 			if !isValidReferralChar(char) {
 				t.Errorf("Code contains invalid character: %c in %s", char, code)
@@ -140,9 +180,12 @@ func TestProcessReferral_Success(t *testing.T) {
 			referralCreated = true
 			return nil
 		},
-		IncrementBonusQuotaFunc: func(ctx context.Context, userID string) error {
+		IncrementBonusQuotaFunc: func(ctx context.Context, userID string, amount int) error {
 			if userID != "referrer_123" {
 				t.Errorf("Expected referrer_123, got %s", userID)
+			}
+			if amount != 1 {
+				t.Errorf("Expected amount 1, got %d", amount)
 			}
 			bonusIncremented = true
 			return nil

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -76,4 +77,72 @@ func (h *ReferralHandler) GetReferralInfo(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, stats)
+}
+
+// =========================================================
+// GAMIFICATION ENDPOINTS (Phase 3)
+// =========================================================
+
+// GetLeaderboard handles GET /api/v1/referrals/leaderboard?limit=50
+// Returns top referrers ranked by successful referrals
+func (h *ReferralHandler) GetLeaderboard(c *gin.Context) {
+	// Parse optional limit parameter (default: 50, max: 100)
+	limit := 50
+	if limitParam := c.Query("limit"); limitParam != "" {
+		if parsedLimit, err := strconv.Atoi(limitParam); err == nil {
+			if parsedLimit > 0 && parsedLimit <= 100 {
+				limit = parsedLimit
+			}
+		}
+	}
+
+	// Fetch leaderboard from service
+	leaderboard, err := h.ReferralService.GetLeaderboard(c.Request.Context(), limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch leaderboard"})
+		return
+	}
+
+	// Hide email addresses in public leaderboard
+	for i := range leaderboard {
+		leaderboard[i].Email = "" // Privacy: don't expose emails publicly
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"leaderboard": leaderboard,
+		"count":       len(leaderboard),
+	})
+}
+
+// GetUserAchievements handles GET /api/v1/user/achievements
+// Returns the authenticated user's unlocked achievement badges
+func (h *ReferralHandler) GetUserAchievements(c *gin.Context) {
+	// Extract user ID from auth context
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: User ID missing from context"})
+		return
+	}
+
+	// Get user's achievements from service
+	achievements, err := h.ReferralService.GetUserAchievements(c.Request.Context(), userID.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch achievements"})
+		return
+	}
+
+	// Get user's rank (if on leaderboard)
+	rank, err := h.ReferralService.GetUserRank(c.Request.Context(), userID.(string))
+
+	response := gin.H{
+		"achievements":   achievements,
+		"total_unlocked": len(achievements),
+	}
+
+	if err == nil && rank != nil {
+		response["leaderboard_rank"] = rank.Rank
+		response["total_referrals"] = rank.TotalReferrals
+	}
+
+	c.JSON(http.StatusOK, response)
 }

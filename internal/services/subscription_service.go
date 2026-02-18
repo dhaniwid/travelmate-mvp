@@ -17,6 +17,7 @@ type UserRepo interface {
 	UpsertUser(ctx context.Context, user *domain.User) error
 	UpdateSubscription(ctx context.Context, userID, tier, status, stripeCustID, stripeSubID string) error
 	GetUserByStripeID(ctx context.Context, stripeCustID string) (*domain.User, error)
+	GrantProDays(ctx context.Context, userID string, days int) error
 }
 
 // SubRepo defines subscription data access methods

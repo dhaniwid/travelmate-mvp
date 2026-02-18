@@ -7,6 +7,7 @@ import (
 	"travelmate/internal/http"
 	"travelmate/internal/http/handlers"
 	"travelmate/internal/repositories"
+	"travelmate/internal/scheduler"
 	"travelmate/internal/services"
 	stripePkg "travelmate/internal/stripe"
 
@@ -36,9 +37,10 @@ func main() {
 	subRepo := repositories.NewSubscriptionRepository(database)
 	prefRepo := repositories.NewPreferencesRepository(database)
 	placeLibRepo := repositories.NewPlaceLibraryRepository(database)
-	analyticsRepo := repositories.NewAnalyticsRepository(database) // NEW
-	collabRepo := repositories.NewCollaboratorRepository(database) // Collaboration 🤝
-	referralRepo := repositories.NewReferralRepository(database)   // Referral System 🎁
+	analyticsRepo := repositories.NewAnalyticsRepository(database)     // NEW
+	collabRepo := repositories.NewCollaboratorRepository(database)     // Collaboration 🤝
+	referralRepo := repositories.NewReferralRepository(database)       // Referral System 🎁
+	flightAlertRepo := repositories.NewFlightAlertRepository(database) // Flight Guardian ✈️
 
 	// 4. Services (Dependency Injection)
 	promptService := services.NewPromptService(database)
@@ -54,9 +56,13 @@ func main() {
 	collabService := services.NewCollaborationService(collabRepo, userRepo, tripRepo) // Collaboration 🤝
 	referralService := services.NewReferralService(referralRepo, userRepo)            // Referral System 🎁
 
+	// Flight Guardian ✈️
+	amadeusService := services.NewAmadeusService()
+	flightGuardianService := services.NewFlightGuardianService(flightAlertRepo, tripRepo, amadeusService)
+
 	var plannerEngine services.PlannerEngine
 	if cfg.OpenAIKey != "" {
-		plannerEngine = services.NewAIPlanner(cfg.OpenAIKey, promptService, prefRepo)
+		plannerEngine = services.NewAIPlanner(cfg.OpenAIKey, promptService, prefRepo, amadeusService) // Pass amadeusService
 	} else {
 		plannerEngine = services.NewTemplatePlanner()
 	}
@@ -83,9 +89,21 @@ func main() {
 	collabHandler := handlers.NewCollaborationHandler(collabService)   // Collaboration 🤝
 	adminHandler := handlers.NewAdminHandler(database)                 // Admin 👑
 	referralHandler := handlers.NewReferralHandler(referralService)    // Referral System 🎁
+	flightHandler := handlers.NewFlightHandler(flightGuardianService)  // Flight Guardian ✈️
+
+	// Miru Chat (RAG) 💬
+	chatService := services.NewChatService(tripRepo, cfg.OpenAIKey)
+	chatHandler := handlers.NewChatHandler(chatService)
 
 	// 6. Router
-	r := http.SetupRouter(tripHandler, fbHandler, subHandler, webhookHandler, discoveryHandler, prefHandler, analyticsHandler, collabHandler, adminHandler, referralHandler, cfg.AllowOrigins, cfg.ClerkSecretKey)
+	r := http.SetupRouter(tripHandler, fbHandler, subHandler, webhookHandler, discoveryHandler, prefHandler, analyticsHandler, collabHandler, adminHandler, referralHandler, flightHandler, chatHandler, cfg.AllowOrigins, cfg.ClerkSecretKey)
+
+	// 6.5 Flight Guardian Scheduler ✈️
+	flightScheduler := scheduler.NewFlightGuardianScheduler(flightGuardianService)
+	if err := flightScheduler.Start(); err != nil {
+		log.Printf("Warning: Failed to start Flight Guardian scheduler: %v", err)
+	}
+	defer flightScheduler.Stop()
 
 	// 7. Run
 	log.Printf("Server running on port %s", cfg.Port)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 	"travelmate/internal/domain"
 )
 
@@ -223,4 +224,41 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, emailInput string) 
 	}
 
 	return &user, nil
+}
+
+// GrantProDays extends or starts a user's PRO subscription by a specific number of days
+func (r *UserRepository) GrantProDays(ctx context.Context, userID string, days int) error {
+	// 1. Get current subscription state
+	query := `
+		SELECT subscription_ends_at, subscription_tier
+		FROM users
+		WHERE user_id = $1
+	`
+	var endsAt sql.NullTime
+	var tier string
+	err := r.DB.QueryRowContext(ctx, query, userID).Scan(&endsAt, &tier)
+	if err != nil {
+		return fmt.Errorf("failed to get current subscription: %w", err)
+	}
+
+	// 2. Calculate new end date
+	newEnd := time.Now().AddDate(0, 0, days)
+
+	// If already PRO and not expired, extend from existing end date
+	if tier == "PRO" && endsAt.Valid && endsAt.Time.After(time.Now()) {
+		newEnd = endsAt.Time.AddDate(0, 0, days)
+	}
+
+	// 3. Update user
+	updateQuery := `
+		UPDATE users
+		SET 
+			subscription_tier = 'PRO',
+			subscription_status = 'ACTIVE',
+			subscription_ends_at = $2,
+			updated_at = NOW()
+		WHERE user_id = $1
+	`
+	_, err = r.DB.ExecContext(ctx, updateQuery, userID, newEnd)
+	return err
 }

@@ -37,8 +37,18 @@ type ISubscriptionService interface {
 type IReferralService interface {
 	ProcessReferral(ctx context.Context, newUserID, referralCode string) error
 	GetReferralStats(ctx context.Context, userID string) (*domain.ReferralStats, error)
+
+	// Phase 3: Gamification
+	GetLeaderboard(ctx context.Context, limit int) ([]domain.LeaderboardEntry, error)
+	GetUserRank(ctx context.Context, userID string) (*domain.LeaderboardEntry, error)
+	GetUserAchievements(ctx context.Context, userID string) ([]domain.Achievement, error)
 }
 
 type ICollaboratorRepository interface {
 	HasAccess(ctx context.Context, tripID, userID string) (bool, error)
+}
+
+// IChatService defines the contract for context-aware AI chat (RAG).
+type IChatService interface {
+	ChatWithTrip(ctx context.Context, tripID, userID, message string) (string, error)
 }

@@ -223,11 +223,7 @@ func (s *TripService) runAsyncTask(
 		// 2. Kirim Event ke Frontend
 		s.sendEvent(eventChan, eventKey, result)
 
-		// 3. Update Variable di Parent (via Callback)
-		if onSuccess != nil {
-			onSuccess(result)
-		}
-
+		// 3. Update Variable di Parent (via Callback) — called once only
 		if onSuccess != nil {
 			onSuccess(result)
 		}
@@ -570,6 +566,7 @@ func (s *TripService) GetPackingList(ctx context.Context, tripID string) ([]doma
 // ==============================================================================
 func (s *TripService) GenerateTripAsync(ctx context.Context, trip domain.Trip) (*domain.Trip, error) {
 	startTime := time.Now()
+
 	// 1. Setup Trip ID
 	if trip.ID == "" {
 		trip.ID = uuid.New().String()
@@ -593,80 +590,107 @@ func (s *TripService) GenerateTripAsync(ctx context.Context, trip domain.Trip) (
 		trip.Destination = curatedCities[rand.Intn(len(curatedCities))]
 		log.Printf("🎲 [LOGIC] Surprise Mode activated! Selected: %s", trip.Destination)
 	}
-
 	if trip.Destination == "" {
 		trip.Destination = s.recommendDestination(trip.Style)
 	}
 
-	// Enrich Location (Lat/Long/ID) - Keep sync as it is fast and critical for DB
-	trip = s.enrichLocation(ctx, trip)
+	// --- OPTIMIZED: TRUE SKELETON-FIRST (M-126 v2) ---
+	// enrichLocation + skeleton AI run in parallel. Logistics moves to background.
+	log.Printf("🚀 [SKELETON-FIRST v2] Starting for trip %s → %s", trip.ID, trip.Destination)
 
-	// --- NEW: SKELETON-FIRST GENERATION (M-126) ---
-	log.Printf("🚀 [SKELETON-FIRST] Starting Parallel Skeleton & Logistics for %s", trip.ID)
-
-	var wg sync.WaitGroup
+	var initWg sync.WaitGroup
 	var (
-		itiRes domain.ItineraryResponse
-		itiErr error
-		logRes domain.TripLogisticsResponse
-		logErr error
+		itiRes    domain.ItineraryResponse
+		itiErr    error
+		enrichedTrip domain.Trip
 	)
+	enrichedTrip = trip // default: use as-is if location enrichment fails
 
-	wg.Add(2)
-	// Task 1: Skeleton Itinerary (Real Names, Geo-Hints, Hooks)
+	initWg.Add(2)
+
+	// Task A: Enrich Location (Lat/Long/ID) — now parallel, not blocking
 	go func() {
-		defer wg.Done()
+		defer initWg.Done()
+		enrichedTrip = s.enrichLocation(ctx, trip)
+	}()
+
+	// Task B: Generate Skeleton Itinerary (gpt-4o-mini, fast)
+	go func() {
+		defer initWg.Done()
 		itiRes, itiErr = s.Planner.GenerateTripSkeleton(ctx, trip)
 	}()
 
-	// Task 2: Strategic Logistics (Visa, Accommo, Budget)
-	go func() {
-		defer wg.Done()
-		logRes, logErr = s.Planner.GenerateTripLogistics(ctx, trip)
-	}()
+	initWg.Wait()
 
-	wg.Wait()
+	// Merge location data back into trip
+	trip.LocationID = enrichedTrip.LocationID
+	trip.Destination = enrichedTrip.Destination
 
 	if itiErr != nil {
 		return nil, fmt.Errorf("skeleton generation failed: %w", itiErr)
 	}
-	if logErr != nil {
-		log.Printf("⚠️ [LOGISTICS] Stage 1 failed: %v", logErr)
-	}
 
-	// Map Overview to PlanData
-	fullPlan := domain.TripPlan{
+	log.Printf("⚡ [SKELETON-FIRST v2] Skeleton ready in %v. Saving to DB...", time.Since(startTime))
+
+	// Build skeleton plan (logistics fields empty — filled by background job)
+	skeletonPlan := domain.TripPlan{
 		TripID:               trip.ID,
 		Itinerary:            itiRes.Itinerary,
-		ArrivalGuide:         &logRes.ArrivalGuide,
-		BudgetBreakdown:      logRes.BudgetBreakdown,
-		PackingList:          logRes.PackingList,
+		ArrivalGuide:         &domain.ArrivalGuide{},
+		BudgetBreakdown:      domain.BudgetBreakdown{},
+		PackingList:          []domain.PackingCategory{},
 		TransportOptions:     []domain.TransportOption{},
-		AccommodationOptions: logRes.StrategicAccommodation,
-		Highlights:           []domain.TripHighlight{}, // To be enriched on-demand or background
-		MorningBriefing:      "",                       // Lazy load
+		AccommodationOptions: []domain.AccommodationOption{},
+		Highlights:           []domain.TripHighlight{},
+		MorningBriefing:      "",
 		Tagline:              trip.Destination + " Escape",
 	}
 
-	// 3. Save Trip with Skeleton Plan to DB
+	// Save skeleton to DB immediately
 	trip.Status = "UPCOMING"
 	trip.EnrichmentStatus = domain.EnrichmentStatusPending
-	trip.ItineraryStatus = domain.ItineraryStatusCompleted // Skeleton is the primary itinerary now
-	trip.PlanData = &fullPlan
+	trip.ItineraryStatus = domain.ItineraryStatusCompleted
+	trip.PlanData = &skeletonPlan
 	trip.CreatedAt = time.Now()
 
 	if err := s.TripRepo.Create(ctx, &trip); err != nil {
 		return nil, fmt.Errorf("failed to save skeleton trip: %w", err)
 	}
 
-	log.Printf("📍 [SKELETON-FIRST] Skeleton Plan saved for trip %s. Response time: %v", trip.ID, time.Since(startTime))
-	s.PerfRepo.SaveMetric(ctx, "Trip:ProgressiveInit", time.Since(startTime), trip.Destination, "SKELETON_ONLY")
+	skeletonLatency := time.Since(startTime)
+	log.Printf("✅ [SKELETON-FIRST v2] Trip %s saved in %v. Returning to user NOW.", trip.ID, skeletonLatency)
+	s.PerfRepo.SaveMetric(ctx, "Trip:SkeletonReady", skeletonLatency, trip.Destination, "SKELETON_ONLY")
 
-	// Trigger Background Enrichment (Photos, PlaceIDs, Verified Coords)
-	go func(tid string) {
-		enrichCtx := context.Background()
-		s.EnrichmentSvc.EnrichTrip(enrichCtx, tid)
-	}(trip.ID)
+	// --- BACKGROUND: Logistics + Enrichment (user does NOT wait for these) ---
+	go func(savedTrip domain.Trip) {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		bgStart := time.Now()
+
+		log.Printf("🔄 [BG-LOGISTICS] Starting background logistics for trip %s", savedTrip.ID)
+
+		logRes, logErr := s.Planner.GenerateTripLogistics(bgCtx, savedTrip)
+		if logErr != nil {
+			log.Printf("⚠️ [BG-LOGISTICS] Failed: %v", logErr)
+		} else {
+			// Merge logistics into existing plan
+			tripAndPlan, err := s.TripRepo.GetTripWithPlan(bgCtx, savedTrip.ID)
+			if err == nil && tripAndPlan != nil {
+				tripAndPlan.Plan.ArrivalGuide = &logRes.ArrivalGuide
+				tripAndPlan.Plan.BudgetBreakdown = logRes.BudgetBreakdown
+				tripAndPlan.Plan.PackingList = logRes.PackingList
+				tripAndPlan.Plan.AccommodationOptions = logRes.StrategicAccommodation
+				if saveErr := s.TripRepo.SaveTripPlan(bgCtx, tripAndPlan.Trip, tripAndPlan.Plan); saveErr != nil {
+					log.Printf("⚠️ [BG-LOGISTICS] Save failed: %v", saveErr)
+				} else {
+					log.Printf("✅ [BG-LOGISTICS] Logistics saved for trip %s in %v", savedTrip.ID, time.Since(bgStart))
+				}
+			}
+		}
+
+		// Photo/PlaceID enrichment
+		s.EnrichmentSvc.EnrichTrip(context.Background(), savedTrip.ID)
+	}(trip)
 
 	return &trip, nil
 }
