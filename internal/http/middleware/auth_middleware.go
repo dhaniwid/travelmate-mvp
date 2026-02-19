@@ -3,26 +3,25 @@ package middleware
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
-	"os"
-
 	"github.com/clerk/clerk-sdk-go/v2"
 	"github.com/clerk/clerk-sdk-go/v2/jwt"
+	clerkuser "github.com/clerk/clerk-sdk-go/v2/user"
 	"github.com/gin-gonic/gin"
 )
 
-// AuthMiddleware memverifikasi token JWT dari Clerk
+// AuthMiddleware verifies Clerk JWT tokens and enriches the Gin context with
+// userID, email, and name by fetching the full user profile from the Clerk Backend API.
 func AuthMiddleware(secretKey string) gin.HandlerFunc {
 	if secretKey == "" {
 		panic("🔥 FATAL: CLERK_SECRET_KEY is missing")
 	}
 
-	// Konfigurasi Clerk SDK dengan Secret Key
 	clerk.SetKey(secretKey)
 
-	// LOUD DEBUG for production troubleshooting
 	keyPreview := "EMPTY"
 	if len(secretKey) > 10 {
 		keyPreview = secretKey[:8] + "..."
@@ -30,7 +29,7 @@ func AuthMiddleware(secretKey string) gin.HandlerFunc {
 	fmt.Printf("🛡️ [AUTH] Clerk initialized with key starting with: %s\n", keyPreview)
 
 	return func(c *gin.Context) {
-		// 2. Ambil Header Authorization
+		// 1. Get Authorization header
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
@@ -40,7 +39,7 @@ func AuthMiddleware(secretKey string) gin.HandlerFunc {
 			return
 		}
 
-		// 3. Format harus "Bearer <token>"
+		// 2. Validate Bearer format
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
@@ -49,18 +48,13 @@ func AuthMiddleware(secretKey string) gin.HandlerFunc {
 			})
 			return
 		}
-
 		sessionToken := parts[1]
 
-		// 4. Verifikasi Token ke Clerk (Stateless/Offline Verification)
-		// CRITICAL: We use default JWKS fetching (api.clerk.com) to avoid 404 errors on custom domains.
-		// If CLERK_PROXY_URL is set (Production with Custom Domain), we use it to allow custom issuer.
-		// If empty (Localhost/Dev), we skip it so standard .clerk.accounts.dev tokens are accepted.
+		// 3. Verify JWT via Clerk SDK (offline/stateless)
 		verifyParams := &jwt.VerifyParams{
 			Token:  sessionToken,
-			Leeway: 5 * time.Second, // Tolerate up to 5s clock skew between client and server
+			Leeway: 5 * time.Second,
 		}
-
 		proxyURL := os.Getenv("CLERK_PROXY_URL")
 		if proxyURL != "" {
 			fmt.Printf("🌐 [AUTH] Using ProxyURL: %s\n", proxyURL)
@@ -68,15 +62,12 @@ func AuthMiddleware(secretKey string) gin.HandlerFunc {
 		}
 
 		claims, err := jwt.Verify(c.Request.Context(), verifyParams)
-
 		if err != nil {
-			// 🚨 DEBUG: Print exact error to console for troubleshooting
 			tokenPreview := "EMPTY"
 			if len(sessionToken) > 10 {
 				tokenPreview = sessionToken[:10]
 			}
 			fmt.Printf("🚨 AUTH ERROR: %v | Token Preview: %s...\n", err, tokenPreview)
-
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"code":    "unauthorized",
 				"message": "Invalid or expired token",
@@ -85,18 +76,13 @@ func AuthMiddleware(secretKey string) gin.HandlerFunc {
 			return
 		}
 
-		// 5. Sukses! Simpan User ID ke Context
-		// 'sub' (Subject) di JWT Clerk adalah User ID (contoh: user_2b7...)
+		// 4. Extract userID from JWT subject
 		userID := claims.Subject
-		// Fallback for different SDK versions
 		if userID == "" && claims.ID != "" {
 			userID = claims.ID
 		}
-
-		// DEBUG LOG (CRITICAL): Print what we found
 		fmt.Printf("🔍 AUTH DEBUG: Found Subject='%s' | ID='%s'\n", claims.Subject, claims.ID)
 
-		// 🛑 THE STRICT GATEKEEPER: IF USER ID IS STILL EMPTY -> ABORT!
 		if userID == "" {
 			fmt.Println("🚨 CRITICAL: Token valid but UserID is EMPTY. Aborting.")
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
@@ -107,12 +93,50 @@ func AuthMiddleware(secretKey string) gin.HandlerFunc {
 		}
 
 		fmt.Printf("✅ AUTH SUCCESS: UserID=%s\n", userID)
-
-		// Set ke context agar bisa dipakai di Handler (misal: tripHandler.ListTrips)
 		c.Set("userID", userID)
 
-		// Opsional: Set claims lain jika butuh email/metadata
-		// c.Set("user_email", claims.Email)
+		// 5. Fetch full user profile from Clerk Backend API to sync email + name.
+		//    This ensures `email` is always available for UpsertUser, collaboration, and referrals.
+		//    Non-fatal: if the fetch fails, the request continues without email context.
+		clerkUserObj, fetchErr := clerkuser.Get(c.Request.Context(), userID)
+		if fetchErr == nil && clerkUserObj != nil {
+			// Extract primary email — match by PrimaryEmailAddressID first
+			email := ""
+			if clerkUserObj.PrimaryEmailAddressID != nil {
+				for _, ea := range clerkUserObj.EmailAddresses {
+					if ea != nil && ea.ID == *clerkUserObj.PrimaryEmailAddressID {
+						email = ea.EmailAddress
+						break
+					}
+				}
+			}
+			// Fallback: use first available email address
+			if email == "" && len(clerkUserObj.EmailAddresses) > 0 && clerkUserObj.EmailAddresses[0] != nil {
+				email = clerkUserObj.EmailAddresses[0].EmailAddress
+			}
+
+			// Build full name from first + last
+			name := ""
+			if clerkUserObj.FirstName != nil {
+				name = *clerkUserObj.FirstName
+			}
+			if clerkUserObj.LastName != nil {
+				if name != "" {
+					name += " "
+				}
+				name += *clerkUserObj.LastName
+			}
+
+			if email != "" {
+				c.Set("email", email)
+			}
+			if name != "" {
+				c.Set("name", name)
+			}
+			fmt.Printf("📧 AUTH: Synced email=%s name=%s for userID=%s\n", email, name, userID)
+		} else if fetchErr != nil {
+			fmt.Printf("⚠️ AUTH: Could not fetch Clerk user profile for %s: %v\n", userID, fetchErr)
+		}
 
 		c.Next()
 	}
@@ -152,7 +176,7 @@ func OptionalAuthMiddleware(secretKey string) gin.HandlerFunc {
 		proxyURL := os.Getenv("CLERK_PROXY_URL")
 		verifyParams := &jwt.VerifyParams{
 			Token:  sessionToken,
-			Leeway: 5 * time.Second, // Tolerate up to 5s clock skew between client and server
+			Leeway: 5 * time.Second,
 		}
 		if proxyURL != "" {
 			verifyParams.ProxyURL = &proxyURL

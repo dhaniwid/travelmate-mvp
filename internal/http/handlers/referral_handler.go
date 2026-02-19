@@ -146,3 +146,35 @@ func (h *ReferralHandler) GetUserAchievements(c *gin.Context) {
 
 	c.JSON(http.StatusOK, response)
 }
+
+// GetUserRank handles GET /api/v1/referrals/rank
+// Returns the authenticated user's current leaderboard rank and referral count.
+func (h *ReferralHandler) GetUserRank(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: User ID missing from context"})
+		return
+	}
+
+	rank, err := h.ReferralService.GetUserRank(c.Request.Context(), userID.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user rank"})
+		return
+	}
+
+	if rank == nil {
+		// User not on leaderboard yet
+		c.JSON(http.StatusOK, gin.H{
+			"rank":            nil,
+			"total_referrals": 0,
+			"on_leaderboard":  false,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"rank":            rank.Rank,
+		"total_referrals": rank.TotalReferrals,
+		"on_leaderboard":  true,
+	})
+}

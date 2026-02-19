@@ -126,6 +126,7 @@ func SetupRouter(
 				// 8. Referral System 🎁
 				protected.POST("/referrals/claim", referralHandler.ClaimReferral)
 				protected.GET("/user/referral", referralHandler.GetReferralInfo)
+				protected.GET("/referrals/rank", referralHandler.GetUserRank) // My Rank 🏅
 
 				// 8.1 Gamification (Phase 3) 🏆
 				protected.GET("/referrals/leaderboard", referralHandler.GetLeaderboard)
