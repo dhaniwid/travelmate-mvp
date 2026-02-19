@@ -96,7 +96,7 @@ func main() {
 	chatHandler := handlers.NewChatHandler(chatService)
 
 	// 6. Router
-	r := http.SetupRouter(tripHandler, fbHandler, subHandler, webhookHandler, discoveryHandler, prefHandler, analyticsHandler, collabHandler, adminHandler, referralHandler, flightHandler, chatHandler, cfg.AllowOrigins, cfg.ClerkSecretKey)
+	r := http.SetupRouter(tripHandler, fbHandler, subHandler, webhookHandler, discoveryHandler, prefHandler, analyticsHandler, collabHandler, adminHandler, referralHandler, flightHandler, chatHandler, cfg.AllowOrigins, cfg.ClerkSecretKey, userRepo)
 
 	// 6.5 Flight Guardian Scheduler ✈️
 	flightScheduler := scheduler.NewFlightGuardianScheduler(flightGuardianService)

@@ -26,6 +26,7 @@ func SetupRouter(
 	chatHandler *handlers.ChatHandler, // Miru Chat (RAG) 💬
 	allowOrigins string,
 	clerkKey string,
+	userEmailSyncer middleware.UserEmailSyncer, // Email DB sync 📧
 ) *gin.Engine {
 
 	r := gin.New()
@@ -91,7 +92,7 @@ func SetupRouter(
 			// 🔒 PROTECTED ROUTES (Requires Clerk Authentication)
 			// ============================================================
 			protected := v1.Group("/")
-			protected.Use(middleware.AuthMiddleware(clerkKey))
+			protected.Use(middleware.AuthMiddleware(clerkKey, userEmailSyncer))
 			{
 				protected.GET("/trips", tripHandler.ListTrips)
 				protected.POST("/trips/save", tripHandler.SaveTrip)

@@ -77,8 +77,8 @@ func (r *UserRepository) UpsertUser(ctx context.Context, user *domain.User) erro
 		INSERT INTO users (user_id, email, name, created_at, updated_at)
 		VALUES ($1, $2, $3, NOW(), NOW())
 		ON CONFLICT (user_id) DO UPDATE SET
-			email = EXCLUDED.email,
-			name = EXCLUDED.name,
+			email = COALESCE(NULLIF(EXCLUDED.email, ''), users.email),
+			name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
 			updated_at = NOW()
 		RETURNING id, subscription_tier, subscription_status
 	`
@@ -91,6 +91,25 @@ func (r *UserRepository) UpsertUser(ctx context.Context, user *domain.User) erro
 		return fmt.Errorf("failed to upsert user: %w", err)
 	}
 
+	return nil
+}
+
+// UpdateUserEmail writes the email (and optionally name) for an existing user.
+// Only overwrites if the incoming value is non-empty and the DB column is NULL or empty.
+// This is called asynchronously from auth middleware after Clerk profile fetch.
+func (r *UserRepository) UpdateUserEmail(ctx context.Context, userID, email, name string) error {
+	query := `
+		UPDATE users
+		SET
+			email = CASE WHEN email IS NULL OR email = '' THEN $2 ELSE email END,
+			name  = CASE WHEN name  IS NULL OR name  = '' THEN $3 ELSE name  END,
+			updated_at = NOW()
+		WHERE user_id = $1
+	`
+	_, err := r.DB.ExecContext(ctx, query, userID, email, name)
+	if err != nil {
+		return fmt.Errorf("failed to update user email: %w", err)
+	}
 	return nil
 }
 

@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -13,9 +15,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// UserEmailSyncer is a minimal interface so the middleware can persist an
+// email without importing the full repositories package (avoids circular deps).
+type UserEmailSyncer interface {
+	UpdateUserEmail(ctx context.Context, userID, email, name string) error
+}
+
 // AuthMiddleware verifies Clerk JWT tokens and enriches the Gin context with
-// userID, email, and name by fetching the full user profile from the Clerk Backend API.
-func AuthMiddleware(secretKey string) gin.HandlerFunc {
+// userID, email, and name by fetching the full user profile from the Clerk
+// Backend API. If userRepo is provided, it also persists the email to the DB
+// asynchronously (fire-and-forget) so existing NULL rows are backfilled.
+func AuthMiddleware(secretKey string, userRepo UserEmailSyncer) gin.HandlerFunc {
 	if secretKey == "" {
 		panic("🔥 FATAL: CLERK_SECRET_KEY is missing")
 	}
@@ -96,7 +106,6 @@ func AuthMiddleware(secretKey string) gin.HandlerFunc {
 		c.Set("userID", userID)
 
 		// 5. Fetch full user profile from Clerk Backend API to sync email + name.
-		//    This ensures `email` is always available for UpsertUser, collaboration, and referrals.
 		//    Non-fatal: if the fetch fails, the request continues without email context.
 		clerkUserObj, fetchErr := clerkuser.Get(c.Request.Context(), userID)
 		if fetchErr == nil && clerkUserObj != nil {
@@ -134,6 +143,18 @@ func AuthMiddleware(secretKey string) gin.HandlerFunc {
 				c.Set("name", name)
 			}
 			fmt.Printf("📧 AUTH: Synced email=%s name=%s for userID=%s\n", email, name, userID)
+
+			// 6. Persist email to DB asynchronously (fire-and-forget).
+			//    Only runs if email was successfully fetched and the repo is wired.
+			if userRepo != nil && email != "" {
+				go func(uid, em, nm string) {
+					bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if dbErr := userRepo.UpdateUserEmail(bgCtx, uid, em, nm); dbErr != nil {
+						log.Printf("⚠️ [AUTH] Failed to persist email for %s: %v", uid, dbErr)
+					}
+				}(userID, email, name)
+			}
 		} else if fetchErr != nil {
 			fmt.Printf("⚠️ AUTH: Could not fetch Clerk user profile for %s: %v\n", userID, fetchErr)
 		}
