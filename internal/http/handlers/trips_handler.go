@@ -190,6 +190,33 @@ func (h *TripHandler) GetTrip(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// GetPublicTrip handles GET /api/v1/public/trips/:id
+// Unauthenticated read-only endpoint for public share links.
+// Returns the same trip data as GetTrip but skips the IDOR ownership check.
+func (h *TripHandler) GetPublicTrip(c *gin.Context) {
+	id := c.Param("id")
+	result, err := h.Service.GetTrip(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, domain.APIError{
+			Code:    "internal_error",
+			Message: err.Error(),
+		})
+		return
+	}
+	if result == nil {
+		c.JSON(http.StatusNotFound, domain.APIError{
+			Code:    "not_found",
+			Message: "Trip not found",
+		})
+		return
+	}
+
+	// Strip sensitive fields before returning
+	result.Trip.UserID = ""
+
+	c.JSON(http.StatusOK, result)
+}
+
 // ListTrips (History)
 func (h *TripHandler) ListTrips(c *gin.Context) {
 	// 1. AMBIL USER ID DARI CONTEXT (Middleware Clerk)

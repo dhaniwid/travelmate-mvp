@@ -89,6 +89,12 @@ func SetupRouter(
 			// 4. Webhooks (Public)
 			api.POST("/webhooks/stripe", webhookHandler.HandleStripeWebhook)
 
+			// 🌐 PUBLIC SHARE ROUTES (No Auth — for shareable trip links & OG crawlers)
+			publicShare := v1.Group("/public")
+			{
+				publicShare.GET("/trips/:id", tripHandler.GetPublicTrip)
+			}
+
 			// 🔒 PROTECTED ROUTES (Requires Clerk Authentication)
 			// ============================================================
 			protected := v1.Group("/")
