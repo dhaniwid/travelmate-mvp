@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"os"
+	"time"
 	"travelmate/internal/config"
 	"travelmate/internal/db"
 	"travelmate/internal/http"
@@ -11,10 +13,28 @@ import (
 	"travelmate/internal/services"
 	stripePkg "travelmate/internal/stripe"
 
+	sentry "github.com/getsentry/sentry-go"
 	_ "github.com/lib/pq"
 )
 
 func main() {
+	// ── Sentry Error Tracking ─────────────────────────────────────────────────
+	sentryDSN := os.Getenv("SENTRY_DSN")
+	if sentryDSN == "" {
+		sentryDSN = "https://8507f339f3f16eec900905861111ae4f@o4510917712543744.ingest.de.sentry.io/4510917727223888"
+	}
+	if err := sentry.Init(sentry.ClientOptions{
+		Dsn:              sentryDSN,
+		TracesSampleRate: 1.0,
+		Environment:      os.Getenv("APP_ENV"), // e.g. "production" | "staging"
+		Debug:            false,
+	}); err != nil {
+		log.Printf("⚠️  Sentry initialization failed: %v", err)
+	} else {
+		log.Println("✅ Sentry initialized")
+	}
+	defer sentry.Flush(2 * time.Second)
+
 	// 1. Config
 	cfg := config.LoadConfig()
 

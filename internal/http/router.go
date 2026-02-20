@@ -7,6 +7,7 @@ import (
 	"travelmate/internal/http/handlers"
 	"travelmate/internal/http/middleware"
 
+	sentrygin "github.com/getsentry/sentry-go/gin"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
@@ -33,6 +34,10 @@ func SetupRouter(
 
 	// Middleware Standar
 	r.Use(gin.Recovery())
+	// Sentry: captures panics and HTTP 5xx errors with full request context
+	r.Use(sentrygin.New(sentrygin.Options{
+		Repanic: true, // re-panic after capturing so gin.Recovery() still handles it
+	}))
 	r.Use(middleware.JSONLogger())
 
 	// 🛠️ CONFIG CORS
