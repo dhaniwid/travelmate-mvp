@@ -281,8 +281,8 @@ type AIPlannerResponse struct {
 	CulinarySignature    []CulinarySignature   `json:"culinary_signature"`
 	HiddenGem            *HiddenGem            `json:"hidden_gem"`
 	HistorySnippet       string                `json:"history_snippet"`
-	Tags            string                `json:"tags"`
-	DestinationAirport string                `json:"destination_airport"` // NEW
+	Tags                 string                `json:"tags"`
+	DestinationAirport   string                `json:"destination_airport"` // NEW
 }
 
 type TripVibeResponse struct {
@@ -515,3 +515,19 @@ const (
 	StatusAccepted = "accepted" // User has accepted and has active access
 	StatusDeclined = "declined" // User declined the invitation
 )
+
+// ==========================================
+// 10. RAG / LOCAL KNOWLEDGE BASE
+// ==========================================
+
+// LocalKnowledge represents a hyper-local community knowledge item
+// stored in the local_knowledge table with a pgvector embedding for RAG.
+type LocalKnowledge struct {
+	ID          string    `json:"id"`
+	City        string    `json:"city"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Category    string    `json:"category"`
+	Embedding   []float32 `json:"embedding,omitempty"` // omit: 1536-dim vector is not sent to clients
+	CreatedAt   time.Time `json:"created_at"`
+}

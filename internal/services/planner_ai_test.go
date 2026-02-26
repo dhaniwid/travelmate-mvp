@@ -43,7 +43,7 @@ func BenchmarkAIPlanner(b *testing.B) {
 	// 3. Inisialisasi Services
 	promptSvc := services.NewPromptService(db)
 	prefRepo := repositories.NewPreferencesRepository(db)
-	planner := services.NewAIPlanner(apiKey, promptSvc, prefRepo, nil)
+	planner := services.NewAIPlanner(apiKey, promptSvc, prefRepo, nil, nil)
 
 	// Mock data untuk testing
 	mockTrip := domain.Trip{

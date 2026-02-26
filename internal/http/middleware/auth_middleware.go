@@ -91,7 +91,7 @@ func AuthMiddleware(secretKey string, userRepo UserEmailSyncer) gin.HandlerFunc 
 		if userID == "" && claims.ID != "" {
 			userID = claims.ID
 		}
-		fmt.Printf("🔍 AUTH DEBUG: Found Subject='%s' | ID='%s'\n", claims.Subject, claims.ID)
+		//fmt.Printf("🔍 AUTH DEBUG: Found Subject='%s' | ID='%s'\n", claims.Subject, claims.ID)
 
 		if userID == "" {
 			fmt.Println("🚨 CRITICAL: Token valid but UserID is EMPTY. Aborting.")
@@ -102,7 +102,7 @@ func AuthMiddleware(secretKey string, userRepo UserEmailSyncer) gin.HandlerFunc 
 			return
 		}
 
-		fmt.Printf("✅ AUTH SUCCESS: UserID=%s\n", userID)
+		//fmt.Printf("✅ AUTH SUCCESS: UserID=%s\n", userID)
 		c.Set("userID", userID)
 
 		// 5. Fetch full user profile from Clerk Backend API to sync email + name.
@@ -142,7 +142,7 @@ func AuthMiddleware(secretKey string, userRepo UserEmailSyncer) gin.HandlerFunc 
 			if name != "" {
 				c.Set("name", name)
 			}
-			fmt.Printf("📧 AUTH: Synced email=%s name=%s for userID=%s\n", email, name, userID)
+			//fmt.Printf("📧 AUTH: Synced email=%s name=%s for userID=%s\n", email, name, userID)
 
 			// 6. Persist email to DB asynchronously (fire-and-forget).
 			//    Only runs if email was successfully fetched and the repo is wired.

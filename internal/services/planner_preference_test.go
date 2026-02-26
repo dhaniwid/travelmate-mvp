@@ -13,7 +13,7 @@ func TestGetRegeneratePrompt_Preferences(t *testing.T) {
 	promptSvc := NewPromptService(nil)
 	promptSvc.addToCache("planner_itinerary_system", "Rules: {{.Constraints}}")
 
-	planner := NewAIPlanner("", promptSvc, nil, nil)
+	planner := NewAIPlanner("", promptSvc, nil, nil, nil)
 
 	// 2. Define Test Data
 	mockTrip := domain.Trip{

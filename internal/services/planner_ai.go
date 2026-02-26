@@ -24,15 +24,27 @@ const (
 )
 
 type AIPlanner struct {
-	client     *openai.Client
-	promptSvc  *PromptService
-	prefRepo   *repositories.PreferencesRepository
-	amadeusSvc *AmadeusService // NEW
+	client        *openai.Client
+	promptSvc     *PromptService
+	prefRepo      *repositories.PreferencesRepository
+	amadeusSvc    *AmadeusService
+	knowledgeRepo KnowledgeSearcher // RAG: local knowledge retrieval
 }
 
-func NewAIPlanner(apiKey string, promptSvc *PromptService, prefRepo *repositories.PreferencesRepository, amadeusSvc *AmadeusService) *AIPlanner {
+// KnowledgeSearcher is a thin interface over KnowledgeRepository for testability.
+type KnowledgeSearcher interface {
+	SearchSimilarKnowledge(ctx context.Context, city string, queryEmbedding []float32, limit int) ([]domain.LocalKnowledge, error)
+}
+
+func NewAIPlanner(apiKey string, promptSvc *PromptService, prefRepo *repositories.PreferencesRepository, amadeusSvc *AmadeusService, knowledgeRepo KnowledgeSearcher) *AIPlanner {
 	client := openai.NewClient(apiKey)
-	return &AIPlanner{client: client, promptSvc: promptSvc, prefRepo: prefRepo, amadeusSvc: amadeusSvc}
+	return &AIPlanner{
+		client:        client,
+		promptSvc:     promptSvc,
+		prefRepo:      prefRepo,
+		amadeusSvc:    amadeusSvc,
+		knowledgeRepo: knowledgeRepo,
+	}
 }
 
 // ============================================================================
@@ -528,6 +540,117 @@ func (s *AIPlanner) generateMockPlan(req domain.Trip, _ []domain.TransportOption
 // PRIVATE HELPER
 // ---------------------------------------------------------
 
+// requestAIWithRAG wraps requestAI with an extra RAG knowledge context message.
+// ragContext is a pre-formatted string block such as:
+//
+//	🧠 LOCAL KNOWLEDGE — Bandung:
+//	1. [cafe] Warung Kopi X — Hidden gem near Dago ...
+//
+// If ragContext is empty, this behaves identically to requestAI.
+func (p *AIPlanner) requestAIWithRAG(ctx context.Context, sysKey string, data interface{}, ragContext string, target interface{}) error {
+	sysPrompt, err := p.promptSvc.GetRenderedPrompt(ctx, sysKey, data)
+	if err != nil {
+		return fmt.Errorf("render prompt error [%s]: %w", sysKey, err)
+	}
+
+	// If RAG data exists, prepend it to the system prompt so the model always
+	// has local intel regardless of context window ordering.
+	if ragContext != "" {
+		sysPrompt = ragContext + "\n\n" + sysPrompt
+		log.Printf("🧠 [RAG] Injected local knowledge block (%d bytes) into system prompt for [%s]", len(ragContext), sysKey)
+	}
+
+	userDataBytes, _ := json.Marshal(data)
+	userContent := fmt.Sprintf("Here is the trip context data:\n%s", string(userDataBytes))
+
+	var respFormat *openai.ChatCompletionResponseFormat
+	targetVal := reflect.ValueOf(target)
+	if targetVal.Kind() == reflect.Ptr && targetVal.Elem().Kind() == reflect.Slice {
+		respFormat = nil
+	} else {
+		respFormat = &openai.ChatCompletionResponseFormat{Type: openai.ChatCompletionResponseFormatTypeJSONObject}
+	}
+
+	resp, err := p.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model: "gpt-4o-mini",
+		Messages: []openai.ChatCompletionMessage{
+			{Role: openai.ChatMessageRoleSystem, Content: sysPrompt},
+			{Role: openai.ChatMessageRoleUser, Content: userContent},
+		},
+		Temperature:    0.7,
+		ResponseFormat: respFormat,
+	})
+	if err != nil {
+		return fmt.Errorf("openai api error: %w", err)
+	}
+	if len(resp.Choices) == 0 {
+		return fmt.Errorf("openai returned empty choices")
+	}
+
+	rawContent := resp.Choices[0].Message.Content
+	cleanContent := cleanJSON([]byte(rawContent))
+	if err := json.Unmarshal(cleanContent, target); err != nil {
+		fmt.Printf("❌ JSON Syntax Error for [%s+RAG]. \nContent: %s\n", sysKey, cleanContent)
+		return fmt.Errorf("json syntax error: %w", err)
+	}
+	return nil
+}
+
+// fetchLocalKnowledge generates a query embedding for the trip destination + style,
+// retrieves the top-5 most similar local knowledge items from pgvector, and returns
+// them as a formatted string block ready for system prompt injection.
+//
+// Failure is non-fatal: if the search fails or returns 0 results, an empty string
+// is returned and trip generation continues normally.
+func (p *AIPlanner) fetchLocalKnowledge(ctx context.Context, city, style string, tripDays int) string {
+	if p.knowledgeRepo == nil {
+		return ""
+	}
+
+	// Build a semantic query that mirrors the ingestion input format
+	queryText := fmt.Sprintf("City: %s, travel style: %s, %d days trip", city, style, tripDays)
+
+	// Step 1: Generate query embedding with text-embedding-3-small
+	embResp, err := p.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
+		Input: []string{queryText},
+		Model: openai.SmallEmbedding3,
+	})
+	if err != nil {
+		log.Printf("⚠️ [RAG] Embedding generation failed for %q: %v. Continuing without local knowledge.", city, err)
+		return ""
+	}
+	if len(embResp.Data) == 0 {
+		log.Printf("⚠️ [RAG] OpenAI returned empty embedding data. Continuing without local knowledge.")
+		return ""
+	}
+	queryEmbedding := embResp.Data[0].Embedding
+
+	// Step 2: Vector similarity search — top 5 most relevant local facts
+	knowledgeItems, err := p.knowledgeRepo.SearchSimilarKnowledge(ctx, city, queryEmbedding, 5)
+	if err != nil {
+		log.Printf("⚠️ [RAG] Vector search failed for city=%q: %v. Continuing without local knowledge.", city, err)
+		return ""
+	}
+	if len(knowledgeItems) == 0 {
+		log.Printf("ℹ️ [RAG] No local knowledge found for city=%q. Continuing normally.", city)
+		return ""
+	}
+
+	log.Printf("✅ [RAG] Retrieved %d local knowledge items for %q", len(knowledgeItems), city)
+	return formatKnowledgeBlock(city, knowledgeItems)
+}
+
+// formatKnowledgeBlock renders retrieved knowledge items into a clean prompt-injectable block.
+func formatKnowledgeBlock(city string, items []domain.LocalKnowledge) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("🧠 LOCAL INSIDER KNOWLEDGE — %s:\n", city))
+	sb.WriteString("Use the following hyper-local facts to recommend authentic, off-the-beaten-path experiences. Prioritize these over generic tourist spots where relevant.\n")
+	for i, item := range items {
+		sb.WriteString(fmt.Sprintf("%d. [%s] %s — %s\n", i+1, item.Category, item.Name, item.Description))
+	}
+	return sb.String()
+}
+
 // requestAI adalah fungsi TUNGGAL untuk menangani komunikasi ke OpenAI.
 func (p *AIPlanner) requestAI(ctx context.Context, sysKey string, data interface{}, target interface{}) error {
 	// ... (prompt rendering)
@@ -766,7 +889,10 @@ func (p *AIPlanner) GenerateTripSkeleton(ctx context.Context, trip domain.Trip) 
 		"Trip": trip,
 	}
 
-	if err := p.requestAI(ctx, "TRIP_SKELETON", inputData, &rawResponse); err != nil {
+	// ── RAG INJECTION ── Retrieve local knowledge for this destination
+	ragContext := p.fetchLocalKnowledge(ctx, trip.Destination, trip.Style, trip.TripDays)
+
+	if err := p.requestAIWithRAG(ctx, "TRIP_SKELETON", inputData, ragContext, &rawResponse); err != nil {
 		return domain.ItineraryResponse{}, err
 	}
 

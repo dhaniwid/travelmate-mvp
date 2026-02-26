@@ -2,8 +2,6 @@ package main
 
 import (
 	"log"
-	"os"
-	"time"
 	"travelmate/internal/config"
 	"travelmate/internal/db"
 	"travelmate/internal/http"
@@ -13,28 +11,11 @@ import (
 	"travelmate/internal/services"
 	stripePkg "travelmate/internal/stripe"
 
-	sentry "github.com/getsentry/sentry-go"
 	_ "github.com/lib/pq"
+	"github.com/sashabaranov/go-openai"
 )
 
 func main() {
-	// ── Sentry Error Tracking ─────────────────────────────────────────────────
-	sentryDSN := os.Getenv("SENTRY_DSN")
-	if sentryDSN == "" {
-		sentryDSN = "https://8507f339f3f16eec900905861111ae4f@o4510917712543744.ingest.de.sentry.io/4510917727223888"
-	}
-	if err := sentry.Init(sentry.ClientOptions{
-		Dsn:              sentryDSN,
-		TracesSampleRate: 1.0,
-		Environment:      os.Getenv("APP_ENV"), // e.g. "production" | "staging"
-		Debug:            false,
-	}); err != nil {
-		log.Printf("⚠️  Sentry initialization failed: %v", err)
-	} else {
-		log.Println("✅ Sentry initialized")
-	}
-	defer sentry.Flush(2 * time.Second)
-
 	// 1. Config
 	cfg := config.LoadConfig()
 
@@ -61,6 +42,7 @@ func main() {
 	collabRepo := repositories.NewCollaboratorRepository(database)     // Collaboration 🤝
 	referralRepo := repositories.NewReferralRepository(database)       // Referral System 🎁
 	flightAlertRepo := repositories.NewFlightAlertRepository(database) // Flight Guardian ✈️
+	knowledgeRepo := repositories.NewKnowledgeRepository(database)     // Local Knowledge RAG 🧠
 
 	// 4. Services (Dependency Injection)
 	promptService := services.NewPromptService(database)
@@ -82,7 +64,7 @@ func main() {
 
 	var plannerEngine services.PlannerEngine
 	if cfg.OpenAIKey != "" {
-		plannerEngine = services.NewAIPlanner(cfg.OpenAIKey, promptService, prefRepo, amadeusService) // Pass amadeusService
+		plannerEngine = services.NewAIPlanner(cfg.OpenAIKey, promptService, prefRepo, amadeusService, knowledgeRepo) // Pass knowledgeRepo for RAG
 	} else {
 		plannerEngine = services.NewTemplatePlanner()
 	}
@@ -115,8 +97,12 @@ func main() {
 	chatService := services.NewChatService(tripRepo, cfg.OpenAIKey)
 	chatHandler := handlers.NewChatHandler(chatService)
 
+	// Local Knowledge Ingestion (RAG) 🧠 — shares the OpenAI client from plannerEngine
+	openaiClient := openai.NewClient(cfg.OpenAIKey)
+	knowledgeHandler := handlers.NewKnowledgeHandler(knowledgeRepo, openaiClient)
+
 	// 6. Router
-	r := http.SetupRouter(tripHandler, fbHandler, subHandler, webhookHandler, discoveryHandler, prefHandler, analyticsHandler, collabHandler, adminHandler, referralHandler, flightHandler, chatHandler, cfg.AllowOrigins, cfg.ClerkSecretKey, userRepo)
+	r := http.SetupRouter(tripHandler, fbHandler, subHandler, webhookHandler, discoveryHandler, prefHandler, analyticsHandler, collabHandler, adminHandler, referralHandler, flightHandler, chatHandler, knowledgeHandler, cfg.AllowOrigins, cfg.ClerkSecretKey, userRepo)
 
 	// 6.5 Flight Guardian Scheduler ✈️
 	flightScheduler := scheduler.NewFlightGuardianScheduler(flightGuardianService)
