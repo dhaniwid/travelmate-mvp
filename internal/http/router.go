@@ -27,7 +27,7 @@ func SetupRouter(
 	knowledgeHandler *handlers.KnowledgeHandler, // Local Knowledge (RAG) 🧠
 	allowOrigins string,
 	clerkKey string,
-	userEmailSyncer middleware.UserEmailSyncer, // Email DB sync 📧
+	userEmailSyncer middleware.UserSyncer, // User DB sync 📧
 ) *gin.Engine {
 
 	r := gin.New()
@@ -83,6 +83,9 @@ func SetupRouter(
 			v1.GET("/discovery", tripHandler.GetDiscovery)
 			v1.GET("/discovery/trending", discoveryHandler.GetTrending)
 			v1.GET("/discovery/explore", discoveryHandler.GetExplore)
+
+			// 2.1 Discovery Teaser — RAG local insights (no auth, no OpenAI) ✨
+			v1.GET("/destinations/:name/insights", knowledgeHandler.GetInsights)
 
 			// 3. Utilities
 			v1.POST("/alternatives", tripHandler.GetAlternatives)

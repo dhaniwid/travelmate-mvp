@@ -127,3 +127,39 @@ func (r *KnowledgeRepository) SearchSimilarKnowledge(ctx context.Context, city s
 
 	return results, nil
 }
+
+// GetByCity returns up to limit LocalKnowledge items for a city using a plain ILIKE match.
+// This is intentionally lightweight — no vector math, no OpenAI — for low-latency teaser queries.
+func (r *KnowledgeRepository) GetByCity(ctx context.Context, city string, limit int) ([]domain.LocalKnowledge, error) {
+	if limit <= 0 {
+		limit = 4
+	}
+
+	query := `
+		SELECT id, city, name, description, category, created_at
+		FROM local_knowledge
+		WHERE city ILIKE $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`
+
+	rows, err := r.DB.QueryContext(ctx, query, "%"+city+"%", limit)
+	if err != nil {
+		return nil, fmt.Errorf("knowledge_repo: GetByCity query failed: %w", err)
+	}
+	defer rows.Close()
+
+	var results []domain.LocalKnowledge
+	for rows.Next() {
+		var k domain.LocalKnowledge
+		if err := rows.Scan(&k.ID, &k.City, &k.Name, &k.Description, &k.Category, &k.CreatedAt); err != nil {
+			return nil, fmt.Errorf("knowledge_repo: GetByCity scan failed: %w", err)
+		}
+		results = append(results, k)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("knowledge_repo: GetByCity rows error: %w", err)
+	}
+
+	return results, nil
+}

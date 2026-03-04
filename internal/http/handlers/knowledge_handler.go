@@ -11,20 +11,30 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-// KnowledgeIngester defines the repository interface the handler depends on.
+// KnowledgeIngester defines the repository interface for admin ingestion.
 type KnowledgeIngester interface {
 	InsertKnowledge(ctx context.Context, knowledge *domain.LocalKnowledge) error
 }
 
-// KnowledgeHandler handles admin ingestion of local knowledge for RAG.
+// KnowledgeQuerier defines the interface for read-only knowledge queries.
+type KnowledgeQuerier interface {
+	GetByCity(ctx context.Context, city string, limit int) ([]domain.LocalKnowledge, error)
+}
+
+// KnowledgeHandler handles admin ingestion of local knowledge for RAG
+// and the public Discovery Teaser endpoint.
 type KnowledgeHandler struct {
 	repo         KnowledgeIngester
+	querier      KnowledgeQuerier
 	openaiClient *openai.Client
 }
 
 func NewKnowledgeHandler(repo KnowledgeIngester, openaiClient *openai.Client) *KnowledgeHandler {
+	// KnowledgeRepository satisfies both interfaces; cast once here.
+	q, _ := repo.(KnowledgeQuerier)
 	return &KnowledgeHandler{
 		repo:         repo,
+		querier:      q,
 		openaiClient: openaiClient,
 	}
 }
@@ -128,4 +138,55 @@ func (h *KnowledgeHandler) IngestKnowledge(c *gin.Context) {
 		"category": knowledge.Category,
 		"dims":     len(knowledge.Embedding),
 	})
+}
+
+// GetInsights handles GET /api/v1/destinations/:name/insights
+// Public endpoint — no auth required.
+//
+// Returns up to 4 curated local knowledge items for the given destination name.
+// Uses plain ILIKE city match — NO OpenAI calls — intentionally fast for real-time debounced UI.
+//
+// Response: { "insights": [ { "name", "category", "description", "city" } ] }
+// Returns an empty array (never 404) when no data is found.
+func (h *KnowledgeHandler) GetInsights(c *gin.Context) {
+	name := c.Param("name")
+	if len(name) < 2 {
+		c.JSON(http.StatusOK, gin.H{"insights": []struct{}{}})
+		return
+	}
+
+	if h.querier == nil {
+		log.Println("⚠️  [Insights] KnowledgeQuerier not available — returning empty")
+		c.JSON(http.StatusOK, gin.H{"insights": []struct{}{}})
+		return
+	}
+
+	ctx := c.Request.Context()
+	items, err := h.querier.GetByCity(ctx, name, 4)
+	if err != nil {
+		log.Printf("❌ [Insights] GetByCity error for %q: %v", name, err)
+		// Degrade gracefully — empty array, not an error response
+		c.JSON(http.StatusOK, gin.H{"insights": []struct{}{}})
+		return
+	}
+
+	// Build a lean response (strip large fields like embeddings, full timestamps)
+	type InsightItem struct {
+		Name        string `json:"name"`
+		Category    string `json:"category"`
+		Description string `json:"description"`
+		City        string `json:"city"`
+	}
+
+	insights := make([]InsightItem, 0, len(items))
+	for _, item := range items {
+		insights = append(insights, InsightItem{
+			Name:        item.Name,
+			Category:    item.Category,
+			Description: item.Description,
+			City:        item.City,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"insights": insights})
 }

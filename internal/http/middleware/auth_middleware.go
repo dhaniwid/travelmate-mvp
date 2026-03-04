@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"travelmate/internal/domain"
 
 	"github.com/clerk/clerk-sdk-go/v2"
 	"github.com/clerk/clerk-sdk-go/v2/jwt"
@@ -15,17 +16,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// UserEmailSyncer is a minimal interface so the middleware can persist an
-// email without importing the full repositories package (avoids circular deps).
-type UserEmailSyncer interface {
-	UpdateUserEmail(ctx context.Context, userID, email, name string) error
+// UserSyncer is a minimal interface so the middleware can upsert a Clerk user
+// into the local users table without importing the full repositories package.
+type UserSyncer interface {
+	UpsertUser(ctx context.Context, user *domain.User) error
 }
 
 // AuthMiddleware verifies Clerk JWT tokens and enriches the Gin context with
 // userID, email, and name by fetching the full user profile from the Clerk
-// Backend API. If userRepo is provided, it also persists the email to the DB
-// asynchronously (fire-and-forget) so existing NULL rows are backfilled.
-func AuthMiddleware(secretKey string, userRepo UserEmailSyncer) gin.HandlerFunc {
+// Backend API. On every authenticated request it upserts the user into the
+// local users table (INSERT ON CONFLICT) so new signups are captured instantly.
+func AuthMiddleware(secretKey string, userRepo UserSyncer) gin.HandlerFunc {
 	if secretKey == "" {
 		panic("🔥 FATAL: CLERK_SECRET_KEY is missing")
 	}
@@ -144,14 +145,18 @@ func AuthMiddleware(secretKey string, userRepo UserEmailSyncer) gin.HandlerFunc 
 			}
 			//fmt.Printf("📧 AUTH: Synced email=%s name=%s for userID=%s\n", email, name, userID)
 
-			// 6. Persist email to DB asynchronously (fire-and-forget).
-			//    Only runs if email was successfully fetched and the repo is wired.
+			// 6. Upsert user into DB asynchronously (fire-and-forget).
+			//    INSERT ON CONFLICT — creates the row for new users, backfills email/name for existing ones.
 			if userRepo != nil && email != "" {
 				go func(uid, em, nm string) {
 					bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 					defer cancel()
-					if dbErr := userRepo.UpdateUserEmail(bgCtx, uid, em, nm); dbErr != nil {
-						log.Printf("⚠️ [AUTH] Failed to persist email for %s: %v", uid, dbErr)
+					if dbErr := userRepo.UpsertUser(bgCtx, &domain.User{
+						UserID: uid,
+						Email:  em,
+						Name:   nm,
+					}); dbErr != nil {
+						log.Printf("⚠️ [AUTH] Failed to upsert user %s: %v", uid, dbErr)
 					}
 				}(userID, email, name)
 			}
