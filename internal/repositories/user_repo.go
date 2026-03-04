@@ -71,11 +71,13 @@ func (r *UserRepository) GetUserByClerkID(ctx context.Context, clerkID string) (
 	return &user, nil
 }
 
-// UpsertUser creates or updates a user based on Clerk ID
+// UpsertUser creates or updates a user based on Clerk ID.
+// On INSERT, referral_code is auto-generated via the DB function generate_referral_code()
+// to satisfy the NOT NULL constraint added in migration 060.
 func (r *UserRepository) UpsertUser(ctx context.Context, user *domain.User) error {
 	query := `
-		INSERT INTO users (user_id, email, name, created_at, updated_at)
-		VALUES ($1, $2, $3, NOW(), NOW())
+		INSERT INTO users (user_id, email, name, referral_code, created_at, updated_at)
+		VALUES ($1, $2, $3, generate_referral_code(), NOW(), NOW())
 		ON CONFLICT (user_id) DO UPDATE SET
 			email = COALESCE(NULLIF(EXCLUDED.email, ''), users.email),
 			name = COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
