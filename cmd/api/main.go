@@ -2,15 +2,19 @@ package main
 
 import (
 	"log"
+	"os"
 	"travelmate/internal/config"
 	"travelmate/internal/db"
 	"travelmate/internal/http"
 	"travelmate/internal/http/handlers"
+	"travelmate/internal/landmark"
 	"travelmate/internal/repositories"
 	"travelmate/internal/scheduler"
 	"travelmate/internal/services"
 	stripePkg "travelmate/internal/stripe"
 
+	// NOTE: stripe package retained — CreateCheckoutSession still active via /user/subscription/checkout.
+	// TODO MIR-018: Replace with Mayar.id checkout flow and remove stripe package entirely.
 	_ "github.com/lib/pq"
 	"github.com/sashabaranov/go-openai"
 )
@@ -43,6 +47,8 @@ func main() {
 	referralRepo := repositories.NewReferralRepository(database)       // Referral System 🎁
 	flightAlertRepo := repositories.NewFlightAlertRepository(database) // Flight Guardian ✈️
 	knowledgeRepo := repositories.NewKnowledgeRepository(database)     // Local Knowledge RAG 🧠
+	featureInterestRepo := repositories.NewFeatureInterestRepository(database) // Feature Interest 🔔
+	passportRepo := repositories.NewPassportRepository(database)              // Digital Passport 🛂
 
 	// 4. Services (Dependency Injection)
 	promptService := services.NewPromptService(database)
@@ -76,15 +82,17 @@ func main() {
 	enrichService := services.NewEnrichmentService(tripRepo, placeLibRepo, cfg.GoogleAPIKey)
 
 	transportService := services.NewTransportService(transportRepo)
+	passportService := services.NewPassportService(passportRepo) // Digital Passport 🛂
+	radarService := services.NewRadarService(database)           // Miru Radar 📡
 
 	tripService := services.NewTripService(tripRepo, fbRepo, accommodationRepo, attractionRepo, transportRepo,
-		perfRepo, discoveryRepo, plannerEngine, locationService, transportService, imageSvc, pdfSvc, enrichService, subService)
+		perfRepo, discoveryRepo, plannerEngine, locationService, transportService, imageSvc, pdfSvc, enrichService, subService, passportService)
 
 	// 5. Handlers
 	tripHandler := handlers.NewTripHandler(tripService, subService, collabRepo)
 	fbHandler := handlers.NewFeedbackHandler(tripService)
 	subHandler := handlers.NewSubscriptionHandler(subService)
-	webhookHandler := handlers.NewWebhookHandler(subService, stripeClient)
+	webhookHandler := handlers.NewWebhookHandler(subService)
 	discoveryHandler := handlers.NewDiscoveryHandler(discoveryService)
 	prefHandler := handlers.NewPreferencesHandler(prefRepo)
 	analyticsHandler := handlers.NewAnalyticsHandler(analyticsService) // NEW
@@ -95,14 +103,26 @@ func main() {
 
 	// Miru Chat (RAG) 💬
 	chatService := services.NewChatService(tripRepo, cfg.OpenAIKey)
-	chatHandler := handlers.NewChatHandler(chatService)
+	chatHandler := handlers.NewChatHandler(chatService, subService, database)
 
 	// Local Knowledge Ingestion (RAG) 🧠 — shares the OpenAI client from plannerEngine
 	openaiClient := openai.NewClient(cfg.OpenAIKey)
 	knowledgeHandler := handlers.NewKnowledgeHandler(knowledgeRepo, openaiClient)
+	featureInterestHandler := handlers.NewFeatureInterestHandler(featureInterestRepo) // Feature Interest 🔔
+	passportHandler := handlers.NewPassportHandler(passportService)
+	radarHandler := handlers.NewRadarHandler(radarService) // Miru Radar 📡
+
+	// Landmark Domain 🏛️
+	landmarkBaseDir := os.Getenv("LANDMARK_BASE_DIR")
+	if landmarkBaseDir == "" {
+		landmarkBaseDir = "../travelmate-web/public/assets/landmarks"
+	}
+	landmarkRepo := landmark.NewRepo(database, landmarkBaseDir, "/assets/landmarks")
+	landmarkSvc := landmark.NewService(landmarkRepo, openaiClient)
+	landmarkHandler := landmark.NewHandler(landmarkSvc)
 
 	// 6. Router
-	r := http.SetupRouter(tripHandler, fbHandler, subHandler, webhookHandler, discoveryHandler, prefHandler, analyticsHandler, collabHandler, adminHandler, referralHandler, flightHandler, chatHandler, knowledgeHandler, cfg.AllowOrigins, cfg.ClerkSecretKey, userRepo)
+	r := http.SetupRouter(tripHandler, fbHandler, subHandler, webhookHandler, discoveryHandler, prefHandler, analyticsHandler, collabHandler, adminHandler, referralHandler, flightHandler, chatHandler, knowledgeHandler, featureInterestHandler, passportHandler, radarHandler, landmarkHandler, cfg.AllowOrigins, cfg.ClerkSecretKey, userRepo)
 
 	// 6.5 Flight Guardian Scheduler ✈️
 	flightScheduler := scheduler.NewFlightGuardianScheduler(flightGuardianService)

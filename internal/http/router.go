@@ -6,6 +6,7 @@ import (
 	"time"
 	"travelmate/internal/http/handlers"
 	"travelmate/internal/http/middleware"
+	"travelmate/internal/landmark"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -20,11 +21,15 @@ func SetupRouter(
 	prefHandler *handlers.PreferencesHandler,
 	analyticsHandler *handlers.AnalyticsHandler,
 	collabHandler *handlers.CollaborationHandler,
-	adminHandler *handlers.AdminHandler, // Admin 👑
-	referralHandler *handlers.ReferralHandler, // Referral System 🎁
-	flightHandler *handlers.FlightHandler, // Flight Guardian ✈️
-	chatHandler *handlers.ChatHandler, // Miru Chat (RAG) 💬
-	knowledgeHandler *handlers.KnowledgeHandler, // Local Knowledge (RAG) 🧠
+	adminHandler *handlers.AdminHandler,                     // Admin 👑
+	referralHandler *handlers.ReferralHandler,               // Referral System 🎁
+	flightHandler *handlers.FlightHandler,                   // Flight Guardian ✈️
+	chatHandler *handlers.ChatHandler,                       // Miru Chat (RAG) 💬
+	knowledgeHandler *handlers.KnowledgeHandler,             // Local Knowledge (RAG) 🧠
+	featureInterestHandler *handlers.FeatureInterestHandler, // Feature Interest 🔔
+	passportHandler *handlers.PassportHandler,               // Digital Passport 🛂
+	radarHandler *handlers.RadarHandler,                     // Miru Radar 📡
+	landmarkHandler *landmark.Handler,                       // Landmark Domain 🏛️
 	allowOrigins string,
 	clerkKey string,
 	userEmailSyncer middleware.UserSyncer, // User DB sync 📧
@@ -37,14 +42,12 @@ func SetupRouter(
 	r.Use(middleware.JSONLogger())
 
 	// 🛠️ CONFIG CORS
-	var origins []string
 	if allowOrigins == "" || allowOrigins == "*" {
-		origins = []string{"*"}
-	} else {
-		origins = strings.Split(allowOrigins, ",")
-		for i := range origins {
-			origins[i] = strings.TrimSpace(origins[i])
-		}
+		log.Fatal("ALLOW_ORIGINS environment variable must be set. Refusing to start with wildcard CORS.")
+	}
+	origins := strings.Split(allowOrigins, ",")
+	for i := range origins {
+		origins[i] = strings.TrimSpace(origins[i])
 	}
 
 	// Logging allowed origins for Railway debugging
@@ -53,7 +56,7 @@ func SetupRouter(
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     origins,
 		AllowMethods:     []string{"GET", "POST", "OPTIONS", "PUT", "DELETE"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With", "X-User-ID", "Stripe-Signature", "X-Admin-Secret"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With", "X-User-ID", "X-Mayar-Signature", "X-Admin-Secret"},
 		ExposeHeaders:    []string{"Content-Length", "Connection", "Cache-Control", "Transfer-Encoding"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
@@ -74,10 +77,15 @@ func SetupRouter(
 			{
 				publicTrips.POST("/trips", tripHandler.CreateTripAsync)
 				publicTrips.POST("/trips/stream", tripHandler.CreateTripStream)
+				publicTrips.POST("/trips/generate/stream", tripHandler.CreateTripSSE)
 				publicTrips.GET("/trips/:id", tripHandler.GetTrip)
 				publicTrips.GET("/trips/:id/enrich/:day_index/:activity_index", tripHandler.EnrichActivity)
 				publicTrips.POST("/trips/:id/feedback", fbHandler.SubmitFeedback)
+				publicTrips.GET("/radar", radarHandler.GetRadar) // Miru Radar 📡
 			}
+
+			// 1.5 Landmark Images 🏛️ (public — no auth, cached on disk)
+			v1.GET("/landmarks/:slug/:variant", landmarkHandler.GetLandmark)
 
 			// 2. Discovery & Inspiration 🚀
 			v1.GET("/discovery", tripHandler.GetDiscovery)
@@ -91,7 +99,9 @@ func SetupRouter(
 			v1.POST("/alternatives", tripHandler.GetAlternatives)
 
 			// 4. Webhooks (Public)
-			api.POST("/webhooks/stripe", webhookHandler.HandleStripeWebhook)
+			// Stripe webhook disabled — Mayar.id is the active payment provider.
+			// api.POST("/webhooks/stripe", webhookHandler.HandleStripeWebhook)
+			api.POST("/webhooks/mayar", webhookHandler.HandleMayarWebhook)
 
 			// 🌐 PUBLIC SHARE ROUTES (No Auth — for shareable trip links & OG crawlers)
 			publicShare := v1.Group("/public")
@@ -107,13 +117,16 @@ func SetupRouter(
 				protected.GET("/trips", tripHandler.ListTrips)
 				protected.POST("/trips/save", tripHandler.SaveTrip)
 				protected.DELETE("/trips/:id", tripHandler.DeleteTrip)
+				protected.POST("/trips/:id/travel-mode", tripHandler.ActivateTravelMode)
+				protected.POST("/trips/:id/logistics/transport", tripHandler.GenerateTransportOnDemand)
 				protected.POST("/trips/:id/refine", tripHandler.RefineTrip) // Miru AI Assistant 🧠
 				protected.GET("/trips/:id/alternatives/:day_index/:activity_index", tripHandler.GetActivityAlternativesByIndex)
 				protected.POST("/trips/:id/swap/:day_index/:activity_index", tripHandler.SwapActivity)
 				protected.POST("/trips/:id/activities", tripHandler.AddActivity)
 				protected.GET("/trips/:id/suggestions/:day_index", tripHandler.GetAddActivitySuggestions)
 				protected.DELETE("/trips/:id/activities/:day_index/:activity_index", tripHandler.DeleteActivity)
-				protected.GET("/trips/:id/export/pdf", tripHandler.ExportPDF) // Premium Export 📄
+				protected.GET("/trips/:id/export/pdf", tripHandler.ExportPDF)         // Premium Export 📄
+				protected.GET("/trips/:id/accommodation", tripHandler.GetAccommodation) // Accommodation recs
 
 				// 4. Subscription
 				protected.GET("/user/subscription", subHandler.GetSubscription)
@@ -142,6 +155,7 @@ func SetupRouter(
 				// 8.1 Gamification (Phase 3) 🏆
 				protected.GET("/referrals/leaderboard", referralHandler.GetLeaderboard)
 				protected.GET("/user/achievements", referralHandler.GetUserAchievements)
+				protected.GET("/users/me/achievement-progress", referralHandler.GetAchievementProgress)
 
 				// 9. Flight Guardian ✈️
 				protected.POST("/trips/:id/track-flights", flightHandler.TrackFlight)
@@ -152,6 +166,15 @@ func SetupRouter(
 
 				// 10. Miru Chat (RAG) 💬
 				protected.POST("/chat/completion", chatHandler.ChatCompletion)
+				protected.GET("/chat/usage", chatHandler.GetChatUsage)
+
+				// 11. Feature Interest (Notify me) 🔔
+				protected.POST("/feature-interest", featureInterestHandler.NotifyInterest)
+
+				// 12. Digital Passport 🛂
+				protected.GET("/passport", passportHandler.GetUserStamps)
+				protected.POST("/passport/claim", passportHandler.ClaimStamp)
+				protected.GET("/passport/check", passportHandler.CheckStamp)
 			}
 
 			// 10. Admin Dashboard 👑
@@ -159,9 +182,14 @@ func SetupRouter(
 			admin.Use(middleware.AdminAuthMiddleware())
 			{
 				admin.GET("/stats", adminHandler.GetStats)
+				admin.GET("/users", adminHandler.GetUsers)
+				admin.POST("/users/:userId/subscription", adminHandler.SetSubscription)
 
 				// RAG: Local Knowledge Ingestion 🧠
 				admin.POST("/knowledge", knowledgeHandler.IngestKnowledge)
+
+				// Landmark Batch Seed 🏛️
+				admin.POST("/landmarks/seed", landmarkHandler.SeedLandmarks)
 			}
 		}
 	}
