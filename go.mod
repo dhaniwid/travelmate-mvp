@@ -3,6 +3,7 @@ module travelmate
 go 1.25.5
 
 require (
+	github.com/chai2010/webp v1.4.0
 	github.com/clerk/clerk-sdk-go/v2 v2.5.1
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.11.0
@@ -14,6 +15,7 @@ require (
 	github.com/sashabaranov/go-openai v1.41.2
 	github.com/stretchr/testify v1.11.1
 	github.com/stripe/stripe-go/v78 v78.12.0
+	golang.org/x/sync v0.19.0
 )
 
 require (
@@ -47,7 +49,6 @@ require (
 	golang.org/x/crypto v0.47.0 // indirect
 	golang.org/x/mod v0.31.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/tools v0.40.0 // indirect

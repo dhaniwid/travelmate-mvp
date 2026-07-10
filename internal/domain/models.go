@@ -33,6 +33,7 @@ type Trip struct {
 	ItineraryStatus  string          `json:"itinerary_status"`  // "pending", "generating", "completed"
 	AIEditsUsed      int             `json:"ai_edits_used" db:"ai_edits_used"`
 	SuggestionsCache json.RawMessage `json:"suggestions_cache,omitempty" db:"suggestions_cache"`
+	TravelModeActive bool            `json:"travel_mode_active" db:"travel_mode_active"`
 	Collaborators    []Collaborator  `json:"collaborators,omitempty" db:"-"` // Populated via JOIN
 }
 
@@ -121,6 +122,7 @@ type TripHighlight struct {
 	Type        string `json:"type"` // e.g. "Nature", "Culture"
 	Hook        string `json:"hook"` // Hook atau alasan singkat
 	ImagePrompt string `json:"image_prompt"`
+	ImageURL    string `json:"image_url,omitempty"` // fetched client-side via Unsplash
 }
 
 type ArrivalGuide struct {
@@ -231,6 +233,7 @@ type LogisticsContext struct {
 }
 
 type TransportOption struct {
+	Type                 string             `json:"type"` // "flight" | "train" | "bus" | "car"
 	StrategyTag          string             `json:"strategy_tag"`
 	Name                 string             `json:"name"`
 	PriceTier            string             `json:"price_tier"`
@@ -521,13 +524,33 @@ const (
 // ==========================================
 
 // LocalKnowledge represents a hyper-local community knowledge item
+// PassportStamp represents a collected city stamp in the Digital Passport feature.
+type PassportStamp struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"user_id"`
+	City      string    `json:"city"`
+	CitySlug  string    `json:"city_slug"`
+	Date      time.Time `json:"date"`
+	Serial    string    `json:"serial"`
+	Mood      string    `json:"mood"` // morning | rain | night
+	ImageURL  string    `json:"image_url"`
+	Rotation  float64   `json:"rotation"`
+	TripID    string    `json:"trip_id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // stored in the local_knowledge table with a pgvector embedding for RAG.
 type LocalKnowledge struct {
-	ID          string    `json:"id"`
-	City        string    `json:"city"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Category    string    `json:"category"`
-	Embedding   []float32 `json:"embedding,omitempty"` // omit: 1536-dim vector is not sent to clients
-	CreatedAt   time.Time `json:"created_at"`
+	ID                 string    `json:"id"`
+	City               string    `json:"city"`
+	Name               string    `json:"name"`
+	Description        string    `json:"description"`
+	Category           string    `json:"category"`
+	Embedding          []float32 `json:"embedding,omitempty"` // omit: 1536-dim vector is not sent to clients
+	Lat                *float64  `json:"lat,omitempty"`
+	Lng                *float64  `json:"lng,omitempty"`
+	HasLandmarkSVG     bool      `json:"has_landmark_svg"`
+	LandmarkSlug       string    `json:"landmark_slug,omitempty"`
+	StampRadiusMeters  int       `json:"stamp_radius_meters"`
+	CreatedAt          time.Time `json:"created_at"`
 }

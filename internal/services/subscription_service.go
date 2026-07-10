@@ -2,13 +2,10 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"time"
 	"travelmate/internal/domain"
-
-	"github.com/stripe/stripe-go/v78"
 )
 
 // UserRepo defines user data access methods
@@ -16,7 +13,6 @@ type UserRepo interface {
 	GetUserByClerkID(ctx context.Context, clerkID string) (*domain.User, error)
 	UpsertUser(ctx context.Context, user *domain.User) error
 	UpdateSubscription(ctx context.Context, userID, tier, status, stripeCustID, stripeSubID string) error
-	GetUserByStripeID(ctx context.Context, stripeCustID string) (*domain.User, error)
 	GrantProDays(ctx context.Context, userID string, days int) error
 }
 
@@ -53,139 +49,6 @@ func NewSubscriptionService(
 // CreateCheckoutSession initiates a subscription update
 func (s *SubscriptionService) CreateCheckoutSession(userID, email, priceID string) (string, error) {
 	return s.StripeClient.CreateCheckoutSession(userID, email, priceID)
-}
-
-// HandleStripeEvent processes webhook events from Stripe
-func (s *SubscriptionService) HandleStripeEvent(ctx context.Context, event stripe.Event) error {
-	switch event.Type {
-	case "checkout.session.completed":
-		// Handle new subscription via Checkout
-		var session stripe.CheckoutSession
-		if err := json.Unmarshal(event.Data.Raw, &session); err != nil {
-			return err
-		}
-		return s.handleCheckoutCompleted(ctx, &session, event.ID)
-
-	case "customer.subscription.updated":
-		// Handle status changes (past_due, active)
-		var sub stripe.Subscription
-		if err := json.Unmarshal(event.Data.Raw, &sub); err != nil {
-			return err
-		}
-		return s.handleSubscriptionUpdated(ctx, &sub, event.ID)
-
-	case "customer.subscription.deleted":
-		// Handle cancellation
-		var sub stripe.Subscription
-		if err := json.Unmarshal(event.Data.Raw, &sub); err != nil {
-			return err
-		}
-		return s.handleSubscriptionDeleted(ctx, &sub, event.ID)
-	}
-
-	return nil
-}
-
-func (s *SubscriptionService) handleCheckoutCompleted(ctx context.Context, session *stripe.CheckoutSession, eventID string) error {
-	userID := session.Metadata["user_id"]
-	if userID == "" {
-		userID = session.ClientReferenceID
-	}
-	if userID == "" {
-		return fmt.Errorf("no user_id found in session")
-	}
-
-	stripeCustID := session.Customer.ID
-	stripeSubID := session.Subscription.ID
-
-	// Update User to PRO
-	if err := s.UserRepo.UpdateSubscription(ctx, userID, "PRO", "ACTIVE", stripeCustID, stripeSubID); err != nil {
-		return err
-	}
-
-	// Log Event
-	return s.SubRepo.LogSubscriptionEvent(ctx, &domain.SubscriptionEvent{
-		UserID:        userID,
-		EventType:     "upgraded",
-		FromTier:      "FREE",
-		ToTier:        "PRO",
-		StripeEventID: eventID,
-		Metadata:      fmt.Sprintf(`{"reason": "checkout_completed", "session_id": "%s"}`, session.ID),
-	})
-}
-
-func (s *SubscriptionService) handleSubscriptionUpdated(ctx context.Context, sub *stripe.Subscription, eventID string) error {
-	stripeCustID := sub.Customer.ID
-	stripeSubID := sub.ID
-	status := string(sub.Status) // active, past_due, canceled, incomplete
-
-	// 1. Find User by Stripe Customer ID
-	user, err := s.UserRepo.GetUserByStripeID(ctx, stripeCustID)
-	if err != nil {
-		return err
-	}
-	if user == nil {
-		return fmt.Errorf("user not found for stripe customer %s", stripeCustID)
-	}
-
-	// 2. Map Stripe Status to Internal Status
-	internalStatus := "ACTIVE"
-	tier := "PRO"
-	if status != "active" && status != "trialing" {
-		internalStatus = "EXPIRED" // or CANCELLED, depending on logic
-		if status == "past_due" {
-			internalStatus = "PAST_DUE" // If we supported it, but schema constraint allows limited values
-		}
-		// Fallback for simple logic: if not active, downgrade to FREE eventually?
-		// For now, let's keep it simple:
-		if status == "canceled" || status == "unpaid" {
-			tier = "FREE"
-			internalStatus = "CANCELLED"
-		}
-	}
-
-	// 3. Update User
-	if err := s.UserRepo.UpdateSubscription(ctx, user.UserID, tier, internalStatus, stripeCustID, stripeSubID); err != nil {
-		return err
-	}
-
-	// 4. Log Event
-	return s.SubRepo.LogSubscriptionEvent(ctx, &domain.SubscriptionEvent{
-		UserID:        user.UserID,
-		EventType:     "status_change",
-		FromTier:      user.SubscriptionTier,
-		ToTier:        tier,
-		StripeEventID: eventID,
-		Metadata:      fmt.Sprintf(`{"status": "%s", "stripe_sub_id": "%s"}`, status, stripeSubID),
-	})
-}
-
-func (s *SubscriptionService) handleSubscriptionDeleted(ctx context.Context, sub *stripe.Subscription, eventID string) error {
-	stripeCustID := sub.Customer.ID
-
-	// 1. Find User
-	user, err := s.UserRepo.GetUserByStripeID(ctx, stripeCustID)
-	if err != nil {
-		return err
-	}
-	if user == nil {
-		return fmt.Errorf("user not found for stripe customer %s", stripeCustID)
-	}
-
-	// 2. Downgrade to FREE
-	if err := s.UserRepo.UpdateSubscription(ctx, user.UserID, "FREE", "CANCELLED", stripeCustID, ""); err != nil {
-		return err
-	}
-
-	// 3. Log Event
-	return s.SubRepo.LogSubscriptionEvent(ctx, &domain.SubscriptionEvent{
-		UserID:        user.UserID,
-		EventType:     "cancelled",
-		FromTier:      user.SubscriptionTier,
-		ToTier:        "FREE",
-		StripeEventID: eventID,
-		Metadata:      `{"reason": "subscription_deleted"}`,
-	})
 }
 
 // GetUserSubscription returns subscription details for a user.
@@ -277,21 +140,19 @@ func (s *SubscriptionService) GetUserQuota(ctx context.Context, userID, email st
 	return quota, nil
 }
 
-// CheckQuotaAvailability checks if user can create a trip
-func (s *SubscriptionService) CheckQuotaAvailability(ctx context.Context, userID string) (bool, error) {
-	// 1. Get user tier
+// IsPROUser returns true if the user has an active PRO subscription.
+// Also auto-creates the user in DB if they don't exist (lazy sync).
+func (s *SubscriptionService) IsPROUser(ctx context.Context, userID string) (bool, error) {
 	user, err := s.UserRepo.GetUserByClerkID(ctx, userID)
 	if err != nil {
 		return false, err
 	}
 
-	// 🚨 RESCUE MISSION (Sprint 14): User exists in Clerk but not in our DB.
-	// Auto-create them immediately so they don't get 500 errors during trip generation.
 	if user == nil {
 		log.Printf("🧬 [LAZY SYNC] User %s not found in DB. Auto-creating as FREE.", userID)
 		user = &domain.User{
 			UserID:             userID,
-			Email:              "", // Optional
+			Email:              "",
 			Name:               "User",
 			SubscriptionTier:   "FREE",
 			SubscriptionStatus: "ACTIVE",
@@ -301,31 +162,13 @@ func (s *SubscriptionService) CheckQuotaAvailability(ctx context.Context, userID
 		}
 	}
 
-	// 2. If PRO, allow (with lazy expiration check)
-	if user.SubscriptionTier == "PRO" && user.SubscriptionStatus == "ACTIVE" {
-		if user.SubscriptionEndsAt != nil && time.Now().After(*user.SubscriptionEndsAt) {
-			// Instead of full lazy logic here, we just block and let the next profile/quota call fix the state.
-			// Or better, we can also trigger the same logic if needed.
-			log.Printf("Quota Check: Subscription for %s has expired.", userID)
-			return false, nil
-		}
-		return true, nil
-	}
-
-	// 3. If FREE, check quota
-	month := time.Now().Format("2006-01")
-	quota, err := s.SubRepo.GetQuota(ctx, userID, month)
-	if err != nil {
-		return false, err
-	}
-
-	// 🎁 REFERRAL BONUS: Include bonus quota from referrals
-	effectiveLimit := quota.QuotaLimit + user.BonusTripQuota
-
-	if quota.TripsCreated >= effectiveLimit {
+	if user.SubscriptionTier != "PRO" || user.SubscriptionStatus != "ACTIVE" {
 		return false, nil
 	}
-
+	if user.SubscriptionEndsAt != nil && time.Now().After(*user.SubscriptionEndsAt) {
+		log.Printf("PRO expired for %s — treating as FREE.", userID)
+		return false, nil
+	}
 	return true, nil
 }
 
@@ -333,4 +176,30 @@ func (s *SubscriptionService) CheckQuotaAvailability(ctx context.Context, userID
 func (s *SubscriptionService) IncrementQuota(ctx context.Context, userID string) error {
 	month := time.Now().Format("2006-01")
 	return s.SubRepo.IncrementQuota(ctx, userID, month)
+}
+
+// HandleMayarPaymentPaid processes a confirmed payment.paid event from Mayar.id.
+// referenceID is the user's Clerk ID passed as referenceId during checkout creation.
+// mayarPaymentID is stored in the StripeEventID column (repurposed as payment_event_id).
+func (s *SubscriptionService) HandleMayarPaymentPaid(ctx context.Context, referenceID, email, mayarPaymentID string) error {
+	if referenceID == "" {
+		return fmt.Errorf("HandleMayarPaymentPaid: referenceId is empty — cannot identify user")
+	}
+
+	// 1. Upgrade user to PRO (no Stripe customer/sub IDs for Mayar — pass empty strings)
+	if err := s.UserRepo.UpdateSubscription(ctx, referenceID, "PRO", "ACTIVE", "", ""); err != nil {
+		return fmt.Errorf("HandleMayarPaymentPaid: UpdateSubscription failed: %w", err)
+	}
+
+	log.Printf("[Mayar] User %s upgraded to PRO (payment: %s)", referenceID, mayarPaymentID)
+
+	// 2. Log subscription event — reuse StripeEventID field as the Mayar payment reference
+	return s.SubRepo.LogSubscriptionEvent(ctx, &domain.SubscriptionEvent{
+		UserID:        referenceID,
+		EventType:     "upgraded",
+		FromTier:      "FREE",
+		ToTier:        "PRO",
+		StripeEventID: mayarPaymentID,
+		Metadata:      fmt.Sprintf(`{"provider": "mayar.id", "email": "%s", "payment_id": "%s"}`, email, mayarPaymentID),
+	})
 }

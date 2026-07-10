@@ -12,9 +12,12 @@ import (
 )
 
 type SubscriptionServiceInterface interface {
-	CheckQuotaAvailability(ctx context.Context, userID string) (bool, error)
-	IncrementQuota(ctx context.Context, userID string) error
+	IsPROUser(ctx context.Context, userID string) (bool, error)
 	GetUserQuota(ctx context.Context, userID, email string) (*domain.TripQuota, error)
+}
+
+type PassportServiceInterface interface {
+	ClaimStamp(ctx context.Context, userID, tripID, city, citySlug string) (*domain.PassportStamp, error)
 }
 
 type TripService struct {
@@ -32,6 +35,7 @@ type TripService struct {
 	PDFSvc         *PDFService
 	EnrichmentSvc  *EnrichmentService
 	SubService     SubscriptionServiceInterface
+	PassportSvc    PassportServiceInterface
 }
 
 func NewTripService(
@@ -49,6 +53,7 @@ func NewTripService(
 	pdfSvc *PDFService,
 	enrichSvc *EnrichmentService,
 	subS SubscriptionServiceInterface,
+	passportSvc PassportServiceInterface,
 ) *TripService {
 	return &TripService{
 		TripRepo:       tr,
@@ -65,6 +70,7 @@ func NewTripService(
 		PDFSvc:         pdfSvc,
 		EnrichmentSvc:  enrichSvc,
 		SubService:     subS,
+		PassportSvc:    passportSvc,
 	}
 }
 
@@ -240,4 +246,35 @@ func (s *TripService) ExportTripToPDF(ctx context.Context, tripID string) ([]byt
 // EnrichActivity (M-126): Proxies to EnrichmentService
 func (s *TripService) EnrichActivity(ctx context.Context, tripID string, dayIdx, actIdx int) (*domain.Activity, error) {
 	return s.EnrichmentSvc.EnrichSingleActivity(ctx, tripID, dayIdx, actIdx)
+}
+
+func (s *TripService) ActivateTravelMode(ctx context.Context, tripID, userID string) error {
+	return s.TripRepo.ActivateTravelMode(ctx, tripID, userID)
+}
+
+// GenerateTransportOnDemand calls AI to generate transport options then persists them (MT-79).
+func (s *TripService) GenerateTransportOnDemand(ctx context.Context, tripID, originCity, userID string) ([]domain.TransportOption, error) {
+	tripAndPlan, err := s.TripRepo.GetTripWithPlan(ctx, tripID)
+	if err != nil || tripAndPlan == nil {
+		return nil, fmt.Errorf("trip not found: %w", err)
+	}
+	if tripAndPlan.Trip.UserID != userID {
+		return nil, fmt.Errorf("unauthorized")
+	}
+
+	options, err := s.Planner.GenerateTransportOnDemand(ctx, originCity, tripAndPlan.Trip.Destination, tripAndPlan.Trip.TripDays)
+	if err != nil {
+		return nil, err
+	}
+
+	if saveErr := s.TripRepo.UpdateTransportOptions(ctx, tripID, options); saveErr != nil {
+		log.Printf("⚠️ [TRANSPORT] Save failed for trip %s: %v", tripID, saveErr)
+	}
+
+	// Also update the origin field if currently empty
+	if tripAndPlan.Trip.Origin == "" || tripAndPlan.Trip.Origin == "Anywhere" {
+		s.TripRepo.UpdateTripOrigin(ctx, tripID, originCity)
+	}
+
+	return options, nil
 }

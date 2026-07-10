@@ -22,9 +22,12 @@ type PlannerEngine interface {
 	GenerateTripCore(ctx context.Context, trip domain.Trip) (domain.ItineraryResponse, error)
 	EnrichTripVibe(ctx context.Context, stage1JSON string) (domain.TripVibeResponse, error)
 	GenerateTripSkeleton(ctx context.Context, trip domain.Trip) (domain.ItineraryResponse, error)
+	GenerateSkeletonStreaming(ctx context.Context, trip domain.Trip, ragContext string) (domain.ItineraryResponse, error)
+	FetchRAGContext(ctx context.Context, city, style string, tripDays int) string
 	GenerateTripLogistics(ctx context.Context, trip domain.Trip) (domain.TripLogisticsResponse, error)
 	GenerateTripOverview(ctx context.Context, trip domain.Trip) (domain.TripOverviewResponse, error)
 	GenerateTripItinerary(ctx context.Context, trip domain.Trip, overviewJSON string) (domain.ItineraryResponse, error)
 	GenerateAddActivitySuggestions(ctx context.Context, destination, style, bucket, time string) ([]domain.ActivityAlternative, error)
 	GetRegeneratePrompt(ctx context.Context, trip domain.Trip, prefs domain.UserPreferences) (string, error)
+	GenerateTransportOnDemand(ctx context.Context, originCity, destination string, tripDays int) ([]domain.TransportOption, error)
 }

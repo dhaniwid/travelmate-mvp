@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"travelmate/internal/repositories"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -67,7 +68,7 @@ func (s *ChatService) ChatWithTrip(ctx context.Context, tripID, userID, message 
 			{Role: openai.ChatMessageRoleUser, Content: message},
 		},
 		Temperature: 0.7,
-		MaxTokens:   512,
+		MaxTokens:   1536,
 	})
 	if err != nil {
 		return "", fmt.Errorf("openai chat error: %w", err)
@@ -77,7 +78,10 @@ func (s *ChatService) ChatWithTrip(ctx context.Context, tripID, userID, message 
 		return "", fmt.Errorf("openai returned empty response")
 	}
 
-	reply := resp.Choices[0].Message.Content
+	reply := strings.TrimSpace(resp.Choices[0].Message.Content)
+	if reply == "" {
+		return "", fmt.Errorf("openai returned empty chat reply")
+	}
 	log.Printf("✅ [Chat] Reply generated (%d chars)", len(reply))
 
 	return reply, nil

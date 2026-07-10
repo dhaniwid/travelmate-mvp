@@ -393,3 +393,15 @@ func (t *TemplatePlanner) GenerateTripSkeleton(ctx context.Context, trip domain.
 	// Re-use logic from GenerateOnlyItinerary
 	return t.GenerateOnlyItinerary(ctx, trip)
 }
+
+func (t *TemplatePlanner) GenerateSkeletonStreaming(ctx context.Context, trip domain.Trip, ragContext string) (domain.ItineraryResponse, error) {
+	return t.GenerateOnlyItinerary(ctx, trip)
+}
+
+func (t *TemplatePlanner) FetchRAGContext(_ context.Context, _, _ string, _ int) string {
+	return ""
+}
+
+func (t *TemplatePlanner) GenerateTransportOnDemand(_ context.Context, _, _ string, _ int) ([]domain.TransportOption, error) {
+	return []domain.TransportOption{}, nil
+}

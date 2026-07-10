@@ -8,6 +8,7 @@ import (
 type ITripService interface {
 	GenerateTripStream(ctx context.Context, req domain.Trip, eventChan chan string, doneChan chan bool)
 	GenerateTripAsync(ctx context.Context, req domain.Trip) (*domain.Trip, error)
+	GenerateTripSSE(ctx context.Context, req domain.Trip, events chan<- string)
 	GetTrip(ctx context.Context, id string) (*domain.TripAndPlan, error)
 	GetUserTrips(ctx context.Context, userID string) ([]domain.Trip, error)
 	SaveUserTrip(ctx context.Context, trip *domain.Trip) error
@@ -24,14 +25,15 @@ type ITripService interface {
 	AddActivity(ctx context.Context, tripID string, dayIdx int, title, time string, autoEnhance bool) (*domain.TripPlan, error)
 	GetAddActivitySuggestions(ctx context.Context, tripID string, dayIdx int, timeStr string) ([]domain.ActivityAlternative, error)
 	DeleteActivity(ctx context.Context, tripID string, dayIdx, actIdx int) (*domain.TripPlan, error)
+	ActivateTravelMode(ctx context.Context, tripID, userID string) error
+	GenerateTransportOnDemand(ctx context.Context, tripID, originCity, userID string) ([]domain.TransportOption, error)
 }
 
 type ISubscriptionService interface {
 	GetUserSubscription(ctx context.Context, userID, email, name string) (*domain.User, error)
 	GetUserQuota(ctx context.Context, userID, email string) (*domain.TripQuota, error)
 	CreateCheckoutSession(userID, email, priceID string) (string, error)
-	CheckQuotaAvailability(ctx context.Context, userID string) (bool, error)
-	IncrementQuota(ctx context.Context, userID string) error
+	IsPROUser(ctx context.Context, userID string) (bool, error)
 }
 
 type IReferralService interface {
@@ -42,6 +44,7 @@ type IReferralService interface {
 	GetLeaderboard(ctx context.Context, limit int) ([]domain.LeaderboardEntry, error)
 	GetUserRank(ctx context.Context, userID string) (*domain.LeaderboardEntry, error)
 	GetUserAchievements(ctx context.Context, userID string) ([]domain.Achievement, error)
+	GetAchievementProgress(ctx context.Context, userID string) (*domain.AchievementProgressResponse, error)
 }
 
 type ICollaboratorRepository interface {

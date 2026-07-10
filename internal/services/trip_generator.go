@@ -653,11 +653,14 @@ func (s *TripService) GenerateTripAsync(ctx context.Context, trip domain.Trip) (
 	trip.PlanData = &skeletonPlan
 	trip.CreatedAt = time.Now()
 
+	dbStart := time.Now()
 	if err := s.TripRepo.Create(ctx, &trip); err != nil {
 		return nil, fmt.Errorf("failed to save skeleton trip: %w", err)
 	}
+	log.Printf("⏱️ [GEN] DB insert: %dms", time.Since(dbStart).Milliseconds())
 
 	skeletonLatency := time.Since(startTime)
+	log.Printf("⏱️ [GEN] TOTAL (end-to-end): %dms", skeletonLatency.Milliseconds())
 	log.Printf("✅ [SKELETON-FIRST v2] Trip %s saved in %v. Returning to user NOW.", trip.ID, skeletonLatency)
 	s.PerfRepo.SaveMetric(ctx, "Trip:SkeletonReady", skeletonLatency, trip.Destination, "SKELETON_ONLY")
 
@@ -693,6 +696,156 @@ func (s *TripService) GenerateTripAsync(ctx context.Context, trip domain.Trip) (
 	}(trip)
 
 	return &trip, nil
+}
+
+// sseEvent sends a properly-formatted SSE message (data: {...}\n\n) to the events channel.
+func sseEvent(events chan<- string, eventType string, payload map[string]interface{}) {
+	if payload == nil {
+		payload = map[string]interface{}{}
+	}
+	payload["event"] = eventType
+	b, _ := json.Marshal(payload)
+	events <- fmt.Sprintf("data: %s\n\n", string(b))
+}
+
+// GenerateTripSSE is the streaming-first generation flow.
+// It inserts a trip stub into the DB immediately, emits "trip_created" via SSE so the
+// frontend can navigate within ~1–2s, then completes AI generation in the background
+// and emits "skeleton_complete" when the plan is ready.
+func (s *TripService) GenerateTripSSE(ctx context.Context, trip domain.Trip, events chan<- string) {
+	startTime := time.Now()
+
+	// 1. Trip ID + Destination
+	if trip.ID == "" {
+		trip.ID = uuid.New().String()
+	}
+	if strings.EqualFold(trip.Destination, "SURPRISE") || trip.Destination == "" {
+		curated := []string{
+			"Kyoto, Japan", "Bali, Indonesia", "Paris, France", "Seoul, South Korea",
+			"Amsterdam, Netherlands", "Barcelona, Spain", "Singapore", "Yogyakarta, Indonesia",
+		}
+		rand.Seed(time.Now().UnixNano())
+		trip.Destination = curated[rand.Intn(len(curated))]
+		log.Printf("🎲 [SSE] Surprise: %s", trip.Destination)
+	}
+
+	// 2. Insert stub into DB (empty plan_data) so we have a valid trip_id immediately
+	trip.Status = "DRAFT"
+	trip.EnrichmentStatus = domain.EnrichmentStatusPending
+	trip.ItineraryStatus = domain.ItineraryStatusGenerating
+	trip.CreatedAt = time.Now()
+
+	if err := s.TripRepo.Create(ctx, &trip); err != nil {
+		log.Printf("❌ [SSE] Stub create failed: %v", err)
+		sseEvent(events, "error", map[string]interface{}{"message": "Failed to create trip: " + err.Error()})
+		return
+	}
+
+	// 3. Emit trip_created IMMEDIATELY — frontend navigates NOW
+	sseEvent(events, "trip_created", map[string]interface{}{"trip_id": trip.ID})
+	log.Printf("⏱️ [SSE] trip_created emitted: %dms", time.Since(startTime).Milliseconds())
+
+	// 4. Parallel: location enrichment + RAG fetch (neither blocks the other)
+	var enrichedTrip domain.Trip
+	var ragContext string
+	var initWg sync.WaitGroup
+	initWg.Add(2)
+
+	go func() {
+		defer initWg.Done()
+		enrichedTrip = s.enrichLocation(ctx, trip)
+	}()
+
+	go func() {
+		defer initWg.Done()
+		ragStart := time.Now()
+		ragContext = s.Planner.FetchRAGContext(ctx, trip.Destination, trip.Style, trip.TripDays)
+		log.Printf("⏱️ [SSE] FetchRAGContext: %dms", time.Since(ragStart).Milliseconds())
+	}()
+
+	initWg.Wait()
+	trip.LocationID = enrichedTrip.LocationID
+	trip.Destination = enrichedTrip.Destination
+	sseEvent(events, "rag_complete", nil)
+
+	// 5. OpenAI streaming
+	itiRes, err := s.Planner.GenerateSkeletonStreaming(ctx, trip, ragContext)
+	if err != nil {
+		log.Printf("❌ [SSE] GenerateSkeletonStreaming failed: %v", err)
+		sseEvent(events, "error", map[string]interface{}{"message": "Generation failed: " + err.Error()})
+		return
+	}
+
+	// 6. Build skeleton plan + update DB
+	skeletonPlan := domain.TripPlan{
+		TripID:               trip.ID,
+		Itinerary:            itiRes.Itinerary,
+		ArrivalGuide:         &domain.ArrivalGuide{},
+		BudgetBreakdown:      domain.BudgetBreakdown{},
+		PackingList:          []domain.PackingCategory{},
+		TransportOptions:     []domain.TransportOption{},
+		AccommodationOptions: []domain.AccommodationOption{},
+		Highlights:           []domain.TripHighlight{},
+		MorningBriefing:      "",
+		Tagline:              trip.Destination + " Escape",
+	}
+	trip.Status = "UPCOMING"
+	trip.ItineraryStatus = domain.ItineraryStatusCompleted
+	trip.EnrichmentStatus = domain.EnrichmentStatusPending
+
+	dbStart := time.Now()
+	if err := s.TripRepo.SaveTripPlan(ctx, trip, skeletonPlan); err != nil {
+		log.Printf("❌ [SSE] SaveTripPlan failed: %v", err)
+		sseEvent(events, "error", map[string]interface{}{"message": "Failed to save plan: " + err.Error()})
+		return
+	}
+	log.Printf("⏱️ [SSE] DB SaveTripPlan: %dms", time.Since(dbStart).Milliseconds())
+
+	// 7. Auto-claim passport stamp — fire and forget, never blocks generation
+	if trip.UserID != "" && trip.UserID != "guest" && s.PassportSvc != nil {
+		go func(userID, tripID, destination string) {
+			stampCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			citySlug := destinationToSlug(destination)
+			if _, err := s.PassportSvc.ClaimStamp(stampCtx, userID, tripID, destination, citySlug); err != nil {
+				log.Printf("⚠️ [PASSPORT] Auto-claim skipped for %s/%s: %v", userID, citySlug, err)
+			} else {
+				log.Printf("🛂 [PASSPORT] Stamp claimed: %s → %s", userID, citySlug)
+			}
+		}(trip.UserID, trip.ID, trip.Destination)
+	}
+
+	// 8. Emit skeleton_complete — plan is in DB, frontend can reload trip data
+	sseEvent(events, "skeleton_complete", map[string]interface{}{"trip_id": trip.ID})
+	log.Printf("⏱️ [SSE] skeleton_complete: %dms total", time.Since(startTime).Milliseconds())
+	s.PerfRepo.SaveMetric(ctx, "Trip:SSESkeletonReady", time.Since(startTime), trip.Destination, "SSE_STREAM")
+
+	// 8. Background logistics (same as GenerateTripAsync)
+	go func(savedTrip domain.Trip) {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		bgStart := time.Now()
+		log.Printf("🔄 [SSE-BG] Starting background logistics for %s", savedTrip.ID)
+
+		logRes, logErr := s.Planner.GenerateTripLogistics(bgCtx, savedTrip)
+		if logErr != nil {
+			log.Printf("⚠️ [SSE-BG] Logistics failed: %v", logErr)
+		} else {
+			tripAndPlan, err := s.TripRepo.GetTripWithPlan(bgCtx, savedTrip.ID)
+			if err == nil && tripAndPlan != nil {
+				tripAndPlan.Plan.ArrivalGuide = &logRes.ArrivalGuide
+				tripAndPlan.Plan.BudgetBreakdown = logRes.BudgetBreakdown
+				tripAndPlan.Plan.PackingList = logRes.PackingList
+				tripAndPlan.Plan.AccommodationOptions = logRes.StrategicAccommodation
+				if saveErr := s.TripRepo.SaveTripPlan(bgCtx, tripAndPlan.Trip, tripAndPlan.Plan); saveErr != nil {
+					log.Printf("⚠️ [SSE-BG] Logistics save failed: %v", saveErr)
+				} else {
+					log.Printf("✅ [SSE-BG] Logistics saved in %v", time.Since(bgStart))
+				}
+			}
+		}
+		s.EnrichmentSvc.EnrichTrip(context.Background(), savedTrip.ID)
+	}(trip)
 }
 
 // ProcessProgressiveGeneration handles the multi-phase AI work in background
@@ -980,4 +1133,13 @@ func (s *TripService) GenerateDetailedItineraryBackground(tripID string, trip do
 func (s *TripService) sendEvent(ch chan string, dataType string, data interface{}) {
 	payload, _ := json.Marshal(map[string]interface{}{"type": dataType, "data": data})
 	ch <- string(payload)
+}
+
+// destinationToSlug converts "Bali, Indonesia" → "bali"
+func destinationToSlug(destination string) string {
+	// Take only the part before the first comma
+	parts := strings.SplitN(destination, ",", 2)
+	slug := strings.ToLower(strings.TrimSpace(parts[0]))
+	slug = strings.ReplaceAll(slug, " ", "_")
+	return slug
 }

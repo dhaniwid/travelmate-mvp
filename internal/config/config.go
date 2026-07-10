@@ -32,7 +32,7 @@ func LoadConfig() *Config {
 		Port:             getEnv("PORT", "8080"),
 		DBUrl:            dbUrl,
 		OpenAIKey:        os.Getenv("OPENAI_API_KEY"),
-		AllowOrigins:     getEnv("ALLOWED_ORIGINS", "*"),
+		AllowOrigins:     os.Getenv("ALLOWED_ORIGINS"),
 		GoogleAPIKey:     os.Getenv("GOOGLE_API_KEY"),
 		GoogleCXId:       os.Getenv("GOOGLE_CX_ID"),
 		StripeSecretKey:  os.Getenv("STRIPE_SECRET_KEY"),

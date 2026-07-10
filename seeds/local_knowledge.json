@@ -1,0 +1,260 @@
+[
+  {
+    "city": "Jakarta",
+    "name": "Kota Tua (Old Batavia)",
+    "description": "The preserved Dutch colonial heart of Jakarta. Wander Fatahillah Square at dawn before the crowds, rent a sepeda ontel (old-style bicycle) to explore the alleys, and visit the tiny Wayang Museum for shadow puppet history. Best visited on Sunday morning when Jl. Gajah Mada goes car-free.",
+    "category": "hidden_gem"
+  },
+  {
+    "city": "Jakarta",
+    "name": "Kampung Warna-Warni Kebon Melati",
+    "description": "A rainbow-painted urban kampung tucked behind Tanah Abang market. Local artists and residents transformed this dense slum into an outdoor mural gallery — a stark, beautiful contrast to the surrounding skyscrapers. Go in the late afternoon when kids are out and the light is golden.",
+    "category": "hidden_gem"
+  },
+  {
+    "city": "Jakarta",
+    "name": "Soto Betawi H. Ma'ruf",
+    "description": "Jakarta's definitive beef-coconut-milk soto, served since 1940 at Pasar Senen. Order the full version with emping crackers, pickled cucumber, and sambal. Arrive before 10am or it sells out. A true local institution ignored by most tourist guides.",
+    "category": "culinary"
+  },
+  {
+    "city": "Jakarta",
+    "name": "Taman Ismail Marzuki (TIM)",
+    "description": "Jakarta's premier arts campus in Cikini, with a planetarium, art galleries, and open-air performance stages. Check their monthly schedule for free wayang shows, jazz performances, and contemporary art exhibitions. The rooftop terrace at dusk overlooks a surprisingly green skyline.",
+    "category": "culture"
+  },
+  {
+    "city": "Jakarta",
+    "name": "Pasar Santa Weekend Market",
+    "description": "A converted 1980s market in Kebayoran Baru repurposed into Jakarta's coolest indie food and design bazaar. Weekends fill the upper floors with vinyl record shops, zine publishers, specialty coffee, and hyperlocal fashion labels. Arrive after 6pm for live band nights.",
+    "category": "local_experience"
+  },
+  {
+    "city": "Jakarta",
+    "name": "Ancol Dreamland Sunrise",
+    "description": "Bypass the theme park and head to the quiet northern seafront of Ancol at 5:30am. Fishermen sell the morning catch directly off their boats, warung serve fresh grilled fish for breakfast, and Jakarta's hazy sunrise over the Java Sea is genuinely spectacular and completely tourist-free.",
+    "category": "hidden_gem"
+  },
+  {
+    "city": "Bali",
+    "name": "Sidemen Valley",
+    "description": "Bali's most serene valley, east of Ubud, with rice terraces so steep they resemble green staircases up Mount Agung. Stay in a family compound homestay, wake up for sunrise paddy walks, and watch the ikat weaving cooperative — entirely off the Kuta tourist circuit. No rice field swings here.",
+    "category": "hidden_gem"
+  },
+  {
+    "city": "Bali",
+    "name": "Pura Luhur Batukau",
+    "description": "Bali's most atmospheric temple, hidden deep in the rainforest on the slopes of Mount Batukaru. Unlike Tanah Lot or Uluwatu, you'll often have the moss-covered shrines entirely to yourself. The mist rolling through the jungle canopy at 7am is otherworldly. Bring a sarong and a local guide.",
+    "category": "culture"
+  },
+  {
+    "city": "Bali",
+    "name": "Amed Sunrise Snorkel",
+    "description": "The black-sand fishing village of Amed in East Bali offers the island's best shore snorkeling — Japanese WW2 shipwreck accessible from the beach, coral gardens 20 meters offshore, and zero crowds. Jukung (outrigger) fishermen head out at 4:30am; hire one to follow for the morning haul experience.",
+    "category": "hidden_gem"
+  },
+  {
+    "city": "Bali",
+    "name": "Warung Babi Guling Ibu Oka 3",
+    "description": "The legendary suckling pig spot in central Ubud. Arrive by 11am (they close when sold out, usually by 1pm). The ritual pork is slow-roasted with turmeric, lemongrass, and galangal since dawn. Order the special plate — lawar, urutan sausage, crispy skin, and blood sausage. Life-changing.",
+    "category": "culinary"
+  },
+  {
+    "city": "Bali",
+    "name": "Penglipuran Village",
+    "description": "The best-preserved traditional Balinese village in Bangli Regency, with a single ceremonial bamboo-lined street flanked by identical house gates. Unlike Penglipuran's tourist version, walk 10 minutes past the entry gate into the working rice fields and village temples where daily life unfolds undisturbed.",
+    "category": "culture"
+  },
+  {
+    "city": "Bali",
+    "name": "Nyang Nyang Beach",
+    "description": "Bali's hardest-to-reach beach — a 45-minute clifftop trek from Uluwatu rewards with 1.5km of white sand and zero vendors, zero sun loungers, zero phones. Bring everything you need. Best accessed via the broken signpost on Jl. Mamo near the Uluwatu entrance. Locals know it; tourists don't.",
+    "category": "hidden_gem"
+  },
+  {
+    "city": "Yogyakarta",
+    "name": "Prambanan at Dawn (Ticket Gate Hack)",
+    "description": "Prambanan temple opens at 6am but the Instagram crowds arrive after 8. Enter at opening, walk clockwise past the main Shiva temple, and reach the smaller Plaosan twin temples 800m north — entirely deserted, with the same UNESCO-heritage stonework and Mount Merapi smoking in the background.",
+    "category": "hidden_gem"
+  },
+  {
+    "city": "Yogyakarta",
+    "name": "Timlo Solo dan Nasi Gudeg Yu Djum",
+    "description": "Yogya's most iconic breakfast: gudeg (young jackfruit stew in coconut milk) at Yu Djum on Jl. Wijilan, open since 1950. Order gudeg kering (dry version) with ayam kampung, krecek (spicy cow skin), and tahu. Pair with sweet Javanese black tea. Arrive before 8am for the freshest pots.",
+    "category": "culinary"
+  },
+  {
+    "city": "Yogyakarta",
+    "name": "Kotagede Silver District",
+    "description": "Yogya's historic silver-smithing quarter, predating the Dutch colonial era, now a maze of 17th-century Javanese merchant houses and family workshops. Watch silversmiths hand-beat filigree rings using techniques unchanged for 400 years. The old mosque and royal cemetery at the quarter's center are genuinely off the tourist map.",
+    "category": "culture"
+  },
+  {
+    "city": "Yogyakarta",
+    "name": "Mangunan Fruit Garden Viewpoint",
+    "description": "A hilltop orchard in Dlingo, 30km south of Yogya, that transforms into a sea of clouds at dawn. Local farmers sell fresh salak (snake fruit) and rambutan from their orchards. The viewpoint over the Progo River canyon is better than any commercial sunrise spot in the area and costs Rp 5,000 entry.",
+    "category": "hidden_gem"
+  },
+  {
+    "city": "Yogyakarta",
+    "name": "Pasar Beringharjo Night Food Alley",
+    "description": "Behind the famous daytime Beringharjo Batik market, a food alley awakens at 5pm with local warungs serving pecel (peanut sauce vegetable salad), oseng-oseng mercon (explosive stir-fry), and wedang ronde (ginger drink with glutinous rice balls). Eaten on plastic stools beside the ancient market wall — pure Yogya.",
+    "category": "culinary"
+  },
+  {
+    "city": "Yogyakarta",
+    "name": "Borobudur Sunrise (Non-tourist Route)",
+    "description": "Instead of the expensive Borobudur sunrise package, hire a local guide to the Punthuk Setumbu hilltop 3km west for IDR 15,000 entry. Watch the Buddhist stupa emerge from the morning mist with Merbabu and Merapi volcanoes behind it — the exact money shot without the temple crowds or premium pricing.",
+    "category": "hidden_gem"
+  },
+  {
+    "city": "Bali",
+    "name": "Rute ke Bali dari Medan / Sumatera",
+    "category": "transport",
+    "description": "Tidak ada penerbangan langsung Medan–Bali. Gunakan koneksi via Jakarta (CGK) atau Surabaya (SUB). Total waktu perjalanan 5–8 jam termasuk transit. Maskapai utama: Garuda Indonesia, Lion Air, Batik Air. Harga tiket berkisar Rp 700rb–2,5jt tergantung musim. Alternatif hemat: terbang Medan–Jakarta dengan LCC (Rp 300–800rb), lalu Jakarta–Bali terpisah (Rp 300–600rb)."
+  },
+  {
+    "city": "Bali",
+    "name": "Rute ke Bali dari Kalimantan (Balikpapan / Banjarmasin)",
+    "category": "transport",
+    "description": "Dari Balikpapan (BPN) ke Bali (DPS): penerbangan langsung tersedia via Lion Air dan Garuda, sekitar 2–2,5 jam, harga Rp 400–1,2jt. Dari Banjarmasin (BDJ): biasanya transit di Surabaya (SUB), total 3–5 jam. Rekomendasi: book H-14 untuk harga terbaik. Peak season (Juni–Agustus, Natal-Tahun Baru) harga bisa 2x lipat."
+  },
+  {
+    "city": "Bali",
+    "name": "Rute ke Bali dari Sulawesi (Makassar / Manado)",
+    "category": "transport",
+    "description": "Dari Makassar (UPG) ke Bali (DPS): penerbangan langsung via Wings Air dan Lion Air, 1,5–2 jam, Rp 350–950rb. Dari Manado (MDC): transit di Makassar atau Surabaya, total 4–6 jam, Rp 600rb–1,8jt. Tip: Makassar–Bali adalah rute kuat, tersedia hampir setiap hari. Alternatif via kapal PELNI: Makassar–Surabaya–Bali, tapi memakan 3–5 hari."
+  },
+  {
+    "city": "Bali",
+    "name": "Ferry Banyuwangi–Bali (Gilimanuk)",
+    "category": "transport",
+    "description": "Ferry penyeberangan Banyuwangi (Ketapang)–Gilimanuk beroperasi 24 jam, setiap 30–60 menit. Tarif Rp 7.500–10.000/orang (pejalan kaki) atau Rp 60.000–150.000 (dengan kendaraan). Durasi penyeberangan 45–60 menit. Ideal untuk traveler dari Jawa yang membawa motor atau mobil. Stasiun kereta Banyuwangi Baru 15 menit dari pelabuhan Ketapang."
+  },
+  {
+    "city": "Bali",
+    "name": "Tips booking tiket ke Bali: peak season & LCC",
+    "category": "transport",
+    "description": "Peak season Bali: Juli–Agustus (sekolah & summer holiday internasional), 23 Des – 3 Jan (Natal-Tahun Baru), dan Lebaran (tanggal fluktuatif). Harga bisa naik 150–300% dari harga normal. Saran: book minimal H-30 untuk perjalanan biasa, H-60 untuk peak season. LCC terbaik: Lion Air, Citilink, AirAsia. Harga normal Jakarta–Bali (CGK–DPS) Rp 250–600rb sekali jalan."
+  },
+  {
+    "city": "Lombok",
+    "name": "Rute ke Lombok dari Jakarta & Jawa",
+    "category": "transport",
+    "description": "Jakarta–Lombok (CGK–LOP): penerbangan langsung tersedia Garuda, Lion Air, Citilink. Durasi 2–2,5 jam, harga Rp 350–1,2jt. Dari Surabaya (SUB–LOP): 1–1,5 jam, Rp 250–800rb. Alternatif via Bali: terbang ke Bali, lalu fast boat Padangbai–Lembar (4–6 jam, Rp 90–150rb) atau penerbangan pendek Bali–Lombok (35 menit, Rp 200–450rb). Bandara internasional Lombok: BIL (Lombok International Airport)."
+  },
+  {
+    "city": "Lombok",
+    "name": "Fast boat & ferry dari Bali ke Lombok",
+    "category": "transport",
+    "description": "Fast boat dari Bali ke Gili Islands (Gili Trawangan, Gili Meno, Gili Air) atau Teluk Nare Lombok: berangkat dari Padangbai, Sanur, atau Amed. Durasi 1,5–4 jam tergantung titik keberangkatan dan tujuan. Harga Rp 150–450rb/orang. Operator terpercaya: Blue Water Express, Gili Getaway, Scoot Fast Cruises. Ferry ASDP Padangbai–Lembar: 4–5 jam, Rp 50–75rb/orang (non-AC, 24 jam)."
+  },
+  {
+    "city": "Lombok",
+    "name": "Rute ke Lombok dari Sumatera (Medan / Palembang)",
+    "category": "transport",
+    "description": "Tidak ada penerbangan langsung Sumatera–Lombok. Transit wajib via Jakarta (CGK) atau Surabaya (SUB). Medan–Lombok: estimasi total 6–9 jam perjalanan, Rp 700rb–2,2jt. Palembang–Lombok: 4–6 jam via Jakarta, Rp 500rb–1,5jt. Tip: beli tiket terpisah (Medan–Jakarta + Jakarta–Lombok) bisa lebih hemat Rp 100–300rb dibanding tiket satu kali transit via maskapai yang sama."
+  },
+  {
+    "city": "Yogyakarta",
+    "name": "Kereta api ke Yogyakarta dari Jakarta & Jawa Barat",
+    "category": "transport",
+    "description": "Kereta api Jakarta–Yogyakarta: KA Argo Lawu, Argo Dwipangga, Taksaka (dari Gambir), Gajayana, Fajar Utama (dari Pasar Senen). Durasi 6–9 jam tergantung kelas. Harga eksekutif Rp 350–700rb, bisnis Rp 200–400rb, ekonomi Rp 80–200rb. Tip: booking via KAI Access atau web KAI — tiket dibuka H-45. Seat habis cepat untuk akhir pekan dan libur nasional."
+  },
+  {
+    "city": "Yogyakarta",
+    "name": "Rute ke Yogyakarta dari Sumatera & Kalimantan",
+    "category": "transport",
+    "description": "Dari Sumatera: penerbangan via Jakarta (transit) atau langsung dari Medan (JOG via transit). Dari Palembang (PLM–JOG): transit Surabaya atau Jakarta, Rp 400–1,1jt. Dari Kalimantan: Balikpapan–Yogyakarta ada penerbangan langsung Lion Air (BPN–JOG, 1,5 jam, Rp 350–900rb). Dari Banjarmasin: transit Surabaya, total 2,5–4 jam. Bandara Yogyakarta: YIA (Yogyakarta International Airport) di Kulon Progo — 45 menit dari pusat kota via bus DAMRI (Rp 25rb)."
+  },
+  {
+    "city": "Yogyakarta",
+    "name": "Bus AKAP & overland ke Yogyakarta",
+    "category": "transport",
+    "description": "Bus AKAP Jakarta–Yogyakarta: berangkat dari Terminal Kampung Rambutan atau Pulo Gebang. Durasi 8–12 jam (semalam). Operator: Rosalia Indah, Pahala Kencana, Sumber Alam. Harga Rp 120–250rb (ekonomi-eksekutif). Masuk ke Yogyakarta via Terminal Giwangan. Alternatif hemat dari Bandung: bus Bandung–Yogyakarta via Purwokerto, 7–9 jam, Rp 100–180rb. Tidak disarankan saat lebaran karena kemacetan parah di Pantura."
+  },
+  {
+    "city": "Labuan Bajo",
+    "name": "Penerbangan ke Labuan Bajo dari Jakarta & Bali",
+    "category": "transport",
+    "description": "Labuan Bajo (LBJ — Bandara Komodo): penerbangan langsung dari Jakarta (CGK–LBJ, 2,5 jam, Rp 700rb–2jt) via Garuda, Citilink, Lion Air. Dari Bali (DPS–LBJ, 1 jam, Rp 350–900rb) via Nam Air, Wings Air, Garuda. Jadwal terbatas — sebagian besar pagi hari. Tip: book jauh-jauh hari karena kapasitas terbatas dan permintaan tinggi. High season Agustus harga bisa 3x lipat."
+  },
+  {
+    "city": "Labuan Bajo",
+    "name": "PELNI & kapal lambat ke Labuan Bajo",
+    "category": "transport",
+    "description": "Kapal PELNI KM Binaiya dan KM Sirimau melayani rute Surabaya/Makassar–Labuan Bajo. Durasi dari Surabaya: 2–3 hari laut. Harga kelas ekonomi Rp 150–350rb, kelas 1 Rp 500–800rb. Jadwal tidak reguler — cek pelni.co.id. Kapal feri lambat dari Sape (Sumbawa) ke Labuan Bajo: 6–8 jam, Rp 80–150rb. Cocok untuk backpacker yang mau menikmati pemandangan laut Flores."
+  },
+  {
+    "city": "Manado",
+    "name": "Penerbangan ke Manado dari Jawa & Kalimantan",
+    "category": "transport",
+    "description": "Manado (MDC — Bandara Sam Ratulangi): penerbangan dari Jakarta (CGK–MDC, 3 jam, Rp 500rb–1,8jt) via Garuda, Lion Air, Batik Air. Dari Surabaya (SUB–MDC): 2,5 jam, Rp 400–1,4jt. Dari Balikpapan (BPN–MDC): transit Makassar atau Surabaya, total 3–5 jam, Rp 500–1,5jt. Rekomendasi: Garuda punya rute langsung Jakarta–Manado paling sering (4–5 kali/hari). LCC lebih murah tapi bisa transit di Makassar."
+  },
+  {
+    "city": "Manado",
+    "name": "PELNI ke Manado dari Jawa & Kalimantan",
+    "category": "transport",
+    "description": "Kapal PELNI yang mampir Manado: KM Tidar, KM Umsini, KM Dobonsolo — rute Jakarta/Surabaya–Balikpapan–Manado. Durasi dari Jakarta: 4–5 hari laut. Harga kelas ekonomi Rp 200–400rb, kelas 1 Rp 700rb–1,2jt. Kapal PELNI cocok untuk traveler yang tidak terburu-buru dan ingin menikmati perjalanan laut sambil transit di beberapa kota Sulawesi. Tiket bisa dibeli online di pelni.co.id atau agen resmi."
+  },
+  {
+    "city": "Raja Ampat",
+    "name": "Cara ke Raja Ampat: Jakarta / Bali → Sorong → Waisai",
+    "category": "transport",
+    "description": "Tidak ada penerbangan langsung ke Raja Ampat. Gateway utama: Sorong (SOQ — Bandara Domine Eduard Osok). Penerbangan Jakarta–Sorong: 4–5 jam via transit Makassar atau langsung (Garuda, Batik Air). Harga Rp 1,2–3jt. Bali–Sorong: transit Makassar, 4–6 jam, Rp 900rb–2,5jt. Dari Sorong ke Raja Ampat: feri ASDP Sorong–Waisai (2 jam, Rp 130rb) atau speedboat charter (1 jam, Rp 500–700rb untuk grup). Feri berangkat pagi dan siang."
+  },
+  {
+    "city": "Makassar",
+    "name": "Penerbangan ke Makassar dari Jawa & Sumatera",
+    "category": "transport",
+    "description": "Makassar (UPG — Bandara Sultan Hasanuddin): hub udara Indonesia Timur. Dari Jakarta (CGK–UPG): penerbangan langsung 2 jam, Rp 350–1,1jt, tersedia 10+ kali/hari. Dari Surabaya (SUB–UPG): 1,5 jam, Rp 250–700rb. Dari Medan (KNO–UPG): transit Surabaya atau Jakarta, total 4–6 jam, Rp 600rb–1,8jt. Maskapai: Garuda, Lion Air, Batik Air, Wings Air. Makassar juga jadi hub koneksi ke Manado, Ternate, Ambon, Sorong, dan Papua."
+  },
+  {
+    "city": "Makassar",
+    "name": "Kapal Pelni & bus ke Makassar dari Jawa",
+    "category": "transport",
+    "description": "Kapal PELNI Surabaya–Makassar: KM Labobar, KM Bukit Siguntang, KM Tilongkabila. Durasi 1,5–2 hari laut. Harga ekonomi Rp 150–280rb, kelas 1 Rp 450–700rb. Jadwal keberangkatan 2–4 kali/minggu. Alternatif darat via feri: bus Surabaya–Balikpapan (kapal) bukan rute umum. Tip untuk budget traveler: kapal PELNI Surabaya–Makassar adalah opsi paling murah, cocok jika tidak ada urgensi waktu."
+  },
+  {
+    "city": "Medan",
+    "name": "Penerbangan ke Medan dari Bali & Jawa Timur",
+    "category": "transport",
+    "description": "Bali–Medan (DPS–KNO): tidak ada penerbangan langsung. Transit via Jakarta (CGK) atau Surabaya (SUB). Total durasi 5–8 jam, harga Rp 700rb–2jt. Surabaya–Medan (SUB–KNO): transit Jakarta, total 3–5 jam, Rp 500–1,5jt. Bandara Medan: Kualanamu (KNO) — 39 km dari pusat kota, terhubung kereta Railink (30 menit, Rp 40rb) atau taksi (45–60 menit, Rp 120–200rb)."
+  },
+  {
+    "city": "Medan",
+    "name": "Bus AKAP & kereta Sumatera ke Medan",
+    "category": "transport",
+    "description": "Bus AKAP Medan–Padang: 8–11 jam via Lintas Barat, Rp 100–200rb. Operator: Sempati Star, PMH, ALS. Bus Medan–Pekanbaru: 7–9 jam, Rp 90–170rb. Kereta api di Sumatera tidak menghubungkan Medan–Padang secara langsung — hanya jalur lokal Medan–Binjai–Tebing Tinggi. Tip: bus malam dari Padang ke Medan tersedia, berangkat pukul 18:00–20:00 WIB, tiba pagi hari."
+  },
+  {
+    "city": "Belitung",
+    "name": "Penerbangan ke Belitung dari Jakarta & Palembang",
+    "category": "transport",
+    "description": "Belitung (TJQ — Bandara H.AS Hanandjoeddin): penerbangan dari Jakarta (CGK–TJQ) via Garuda, Nam Air, Citilink. Durasi 1–1,5 jam, harga Rp 300–900rb. Dari Palembang (PLM–TJQ): penerbangan pendek 45 menit, Rp 200–500rb tapi jadwal terbatas. Tidak ada penerbangan dari Bali atau Kalimantan langsung — wajib transit Jakarta. Tip: pesan tiket jauh hari karena kapasitas penerbangan ke Belitung terbatas dan cepat habis di akhir pekan."
+  },
+  {
+    "city": "Bali",
+    "name": "Tips booking KAI: H-45 dan seat berdasarkan rute",
+    "category": "transport",
+    "description": "KAI membuka booking tiket H-45 sebelum keberangkatan. Untuk rute populer (Jakarta–Yogyakarta, Jakarta–Surabaya, Yogyakarta–Surabaya), tiket kelas eksekutif bisa habis dalam hitungan menit di tanggal favorit. Gunakan aplikasi KAI Access atau web kai.id. Tip: aktifkan notifikasi waitlist jika tiket habis — pembatalan sering membuka slot baru. Seat terbaik untuk pemandangan: kereta ke arah barat pilih kursi A/B (sisi kanan), ke timur pilih C/D."
+  },
+  {
+    "city": "Lombok",
+    "name": "Tips booking LCC Indonesia: Citilink, Lion Air, AirAsia",
+    "category": "transport",
+    "description": "Strategi hemat tiket pesawat domestik Indonesia: (1) Cek harga Selasa–Rabu, biasanya lebih murah dari akhir pekan. (2) Hindari penerbangan pagi pertama dan sore terakhir — harga premium. (3) Citilink sering punya flash sale di app setiap Selasa malam. (4) AirAsia cocok untuk rute ke KL dulu baru Lombok/Bali jika harga domestik mahal. (5) Bagasi berbayar di LCC — kalkulasi total biaya sebelum beli. (6) Tanggal 'bebas' di luar libur nasional bisa hemat 40–60%."
+  },
+  {
+    "city": "Yogyakarta",
+    "name": "Harga transport seasonal: Lebaran, Natal, Tahun Baru",
+    "category": "transport",
+    "description": "Peak season transportasi Indonesia: (1) Lebaran H-7 hingga H+7: harga tiket kereta dan pesawat bisa 2–4x lipat, kemacetan parah di jalur Pantura dan Selatan Jawa. Book H-45 untuk kereta. (2) Natal 23–26 Desember: harga pesawat naik 100–200%. (3) Tahun Baru 30 Des – 2 Jan: sama mahalnya. (4) Agustus (musim panas internasional): harga Bali dan Labuan Bajo premium. Low season terbaik: Februari–April dan September–Oktober — harga normal dan destinasi tidak terlalu ramai."
+  },
+  {
+    "city": "Makassar",
+    "name": "PELNI Indonesia: panduan kelas dan tips perjalanan laut",
+    "category": "transport",
+    "description": "Kapal PELNI memiliki 4 kelas: Ekonomi (dek terbuka/kasur susun, Rp 100–300rb), Kelas 3 (kamar 4 orang), Kelas 2 (kamar 2 orang), Kelas 1 (kamar privat, Rp 500rb–1,5jt). Fasilitas kapal besar (Tidar, Labobar): restoran, kantin, dek promenade. Tips: bawa bantal sendiri untuk kelas ekonomi, jaga barang bawaan. Beli tiket di pelni.co.id atau agen H-30. Rute andalan: Jakarta–Surabaya–Makassar–Manado–Ternate–Sorong/Papua."
+  }
+]

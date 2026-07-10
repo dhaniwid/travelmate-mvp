@@ -235,3 +235,54 @@ func (s *ReferralService) GetUserRank(ctx context.Context, userID string) (*doma
 func (s *ReferralService) GetUserAchievements(ctx context.Context, userID string) ([]domain.Achievement, error) {
 	return s.ReferralRepo.GetUserAchievements(ctx, userID)
 }
+
+// GetAchievementProgress returns per-badge progress including remaining referrals needed.
+func (s *ReferralService) GetAchievementProgress(ctx context.Context, userID string) (*domain.AchievementProgressResponse, error) {
+	count, err := s.ReferralRepo.GetReferralCount(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get referral count: %w", err)
+	}
+
+	unlocked, err := s.ReferralRepo.GetUserAchievements(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get achievements: %w", err)
+	}
+
+	unlockedByTier := make(map[string]domain.Achievement, len(unlocked))
+	for _, a := range unlocked {
+		unlockedByTier[a.Tier] = a
+	}
+
+	milestones := GetMilestoneDefinitions()
+	items := make([]domain.AchievementProgressItem, 0, len(milestones))
+	allUnlocked := true
+
+	for _, m := range milestones {
+		remaining := m.ReferralsNeeded - count
+		if remaining < 0 {
+			remaining = 0
+		}
+		a, isUnlocked := unlockedByTier[m.Tier]
+		item := domain.AchievementProgressItem{
+			Tier:            m.Tier,
+			BadgeName:       m.BadgeName,
+			Icon:            getTierIcon(m.Tier),
+			ReferralsNeeded: m.ReferralsNeeded,
+			CurrentCount:    count,
+			Remaining:       remaining,
+			Unlocked:        isUnlocked,
+		}
+		if isUnlocked {
+			item.UnlockedAt = &a.UnlockedAt
+		} else {
+			allUnlocked = false
+		}
+		items = append(items, item)
+	}
+
+	return &domain.AchievementProgressResponse{
+		CurrentReferrals: count,
+		Items:            items,
+		AllUnlocked:      allUnlocked,
+	}, nil
+}
