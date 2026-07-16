@@ -147,6 +147,21 @@ func (h *ReferralHandler) GetUserAchievements(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// GetAchievementProgress handles GET /api/v1/users/me/achievement-progress
+func (h *ReferralHandler) GetAchievementProgress(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	progress, err := h.ReferralService.GetAchievementProgress(c.Request.Context(), userID.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch achievement progress"})
+		return
+	}
+	c.JSON(http.StatusOK, progress)
+}
+
 // GetUserRank handles GET /api/v1/referrals/rank
 // Returns the authenticated user's current leaderboard rank and referral count.
 func (h *ReferralHandler) GetUserRank(c *gin.Context) {

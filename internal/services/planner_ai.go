@@ -174,7 +174,10 @@ func (p *AIPlanner) GenerateEditorial(ctx context.Context, trip domain.Trip) (do
 	startTime := time.Now()
 	log.Printf("⏱️ [PERF] Starting Editorial AI Request for %s", trip.Destination)
 
-	if err := p.requestAI(ctx, "planner_editorial_system", trip, &rawResponse); err != nil {
+	// ── RAG INJECTION ── Inject local insider knowledge into editorial generation
+	ragContext := p.fetchLocalKnowledge(ctx, trip.Destination, trip.Style, trip.TripDays)
+
+	if err := p.requestAIWithRAG(ctx, "planner_editorial_system", trip, ragContext, &rawResponse, 0); err != nil {
 		log.Printf("❌ [AI ERROR] Editorial AI Failed: %v", err)
 		return domain.EditorialResponse{}, err
 	}
@@ -187,6 +190,9 @@ func (p *AIPlanner) GenerateEditorial(ctx context.Context, trip domain.Trip) (do
 	if err := json.Unmarshal(cleanData, &resp); err != nil {
 		fmt.Printf("⚠️ [AI DEBUG] Editorial Unmarshal failed: %v\n", err)
 		return domain.EditorialResponse{}, err
+	}
+	if err := validateEditorialResponse(resp, "GenerateEditorial"); err != nil {
+		return domain.EditorialResponse{}, fmt.Errorf("editorial validation failed: %w", err)
 	}
 
 	return resp, nil
@@ -278,19 +284,28 @@ func (p *AIPlanner) parseAlternatives(raw []byte) ([]domain.ActivityAlternative,
 
 	var directArray []aiAlt
 	if err := json.Unmarshal(cleanData, &directArray); err == nil && len(directArray) > 0 {
-		return p.mapToDomainAlternatives(directArray), nil
+		alts := p.mapToDomainAlternatives(directArray)
+		if err := validateActivityAlternatives(alts, "parseAlternatives"); err != nil {
+			return nil, err
+		}
+		return alts, nil
 	}
 
 	var wrapper aiWrapper
 	if err := json.Unmarshal(cleanData, &wrapper); err == nil {
+		var alts []domain.ActivityAlternative
 		if len(wrapper.Alternatives) > 0 {
-			return p.mapToDomainAlternatives(wrapper.Alternatives), nil
+			alts = p.mapToDomainAlternatives(wrapper.Alternatives)
+		} else if len(wrapper.Suggestions) > 0 {
+			alts = p.mapToDomainAlternatives(wrapper.Suggestions)
+		} else if len(wrapper.Activities) > 0 {
+			alts = p.mapToDomainAlternatives(wrapper.Activities)
 		}
-		if len(wrapper.Suggestions) > 0 {
-			return p.mapToDomainAlternatives(wrapper.Suggestions), nil
-		}
-		if len(wrapper.Activities) > 0 {
-			return p.mapToDomainAlternatives(wrapper.Activities), nil
+		if len(alts) > 0 {
+			if err := validateActivityAlternatives(alts, "parseAlternatives"); err != nil {
+				return nil, err
+			}
+			return alts, nil
 		}
 	}
 
@@ -371,6 +386,10 @@ func (p *AIPlanner) GeneratePlan(ctx context.Context, trip domain.Trip) (domain.
 	var fullResponse domain.AIPlannerResponse
 	if err := json.Unmarshal(cleanData, &fullResponse); err != nil {
 		fmt.Printf("❌ [AI DEBUG] Full Plan Unmarshal Failed: %v\n", err)
+		return p.generateMockPlan(trip, nil), nil
+	}
+	if err := validateAIPlannerResponse(fullResponse, "GeneratePlan"); err != nil {
+		fmt.Printf("❌ [AI VALIDATION] Full Plan Invalid: %v\n", err)
 		return p.generateMockPlan(trip, nil), nil
 	}
 
@@ -547,11 +566,17 @@ func (s *AIPlanner) generateMockPlan(req domain.Trip, _ []domain.TransportOption
 //	1. [cafe] Warung Kopi X — Hidden gem near Dago ...
 //
 // If ragContext is empty, this behaves identically to requestAI.
-func (p *AIPlanner) requestAIWithRAG(ctx context.Context, sysKey string, data interface{}, ragContext string, target interface{}) error {
+// requestAIWithRAG wraps requestAI with an extra RAG knowledge context message.
+// maxTokens: 0 = no limit (model default). Pass a value e.g. 2500 to cap output tokens.
+func (p *AIPlanner) requestAIWithRAG(ctx context.Context, sysKey string, data interface{}, ragContext string, target interface{}, maxTokens int) error {
+	t0 := time.Now()
+
+	promptStart := time.Now()
 	sysPrompt, err := p.promptSvc.GetRenderedPrompt(ctx, sysKey, data)
 	if err != nil {
 		return fmt.Errorf("render prompt error [%s]: %w", sysKey, err)
 	}
+	log.Printf("⏱️ [GEN:%s] GetRenderedPrompt: %dms", sysKey, time.Since(promptStart).Milliseconds())
 
 	// If RAG data exists, prepend it to the system prompt so the model always
 	// has local intel regardless of context window ordering.
@@ -571,7 +596,7 @@ func (p *AIPlanner) requestAIWithRAG(ctx context.Context, sysKey string, data in
 		respFormat = &openai.ChatCompletionResponseFormat{Type: openai.ChatCompletionResponseFormatTypeJSONObject}
 	}
 
-	resp, err := p.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+	req := openai.ChatCompletionRequest{
 		Model: "gpt-4o-mini",
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: sysPrompt},
@@ -579,20 +604,38 @@ func (p *AIPlanner) requestAIWithRAG(ctx context.Context, sysKey string, data in
 		},
 		Temperature:    0.7,
 		ResponseFormat: respFormat,
-	})
+	}
+	if maxTokens > 0 {
+		req.MaxTokens = maxTokens
+	}
+
+	aiStart := time.Now()
+	log.Printf("⏱️ [GEN:%s] OpenAI call sent (maxTokens=%d)", sysKey, maxTokens)
+	resp, err := p.client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return fmt.Errorf("openai api error: %w", err)
 	}
+	log.Printf("⏱️ [GEN:%s] OpenAI response received: %dms | prompt_tokens=%d completion_tokens=%d total_tokens=%d",
+		sysKey,
+		time.Since(aiStart).Milliseconds(),
+		resp.Usage.PromptTokens,
+		resp.Usage.CompletionTokens,
+		resp.Usage.TotalTokens,
+	)
+
 	if len(resp.Choices) == 0 {
 		return fmt.Errorf("openai returned empty choices")
 	}
 
+	parseStart := time.Now()
 	rawContent := resp.Choices[0].Message.Content
 	cleanContent := cleanJSON([]byte(rawContent))
 	if err := json.Unmarshal(cleanContent, target); err != nil {
 		fmt.Printf("❌ JSON Syntax Error for [%s+RAG]. \nContent: %s\n", sysKey, cleanContent)
 		return fmt.Errorf("json syntax error: %w", err)
 	}
+	log.Printf("⏱️ [GEN:%s] Response parsed: %dms | total requestAIWithRAG: %dms", sysKey, time.Since(parseStart).Milliseconds(), time.Since(t0).Milliseconds())
+
 	return nil
 }
 
@@ -882,35 +925,183 @@ func (p *AIPlanner) EnrichTripVibe(ctx context.Context, stage1JSON string) (doma
 // GenerateTripSkeleton (Phase 1): Ultra-fast generation of itinerary structure only
 func (p *AIPlanner) GenerateTripSkeleton(ctx context.Context, trip domain.Trip) (domain.ItineraryResponse, error) {
 	startTime := time.Now()
-	log.Printf("⏱️ [PERF] Starting TRIP_SKELETON AI Request (Phase 1) for %s...", trip.Destination)
+	log.Printf("⏱️ [GEN] Start — %s (%d days)", trip.Destination, trip.TripDays)
 
-	var rawResponse json.RawMessage
 	inputData := map[string]interface{}{
 		"Trip": trip,
 	}
 
 	// ── RAG INJECTION ── Retrieve local knowledge for this destination
+	ragStart := time.Now()
 	ragContext := p.fetchLocalKnowledge(ctx, trip.Destination, trip.Style, trip.TripDays)
+	log.Printf("⏱️ [GEN] FetchLocalKnowledge (RAG embedding + pgvector): %dms", time.Since(ragStart).Milliseconds())
 
-	if err := p.requestAIWithRAG(ctx, "TRIP_SKELETON", inputData, ragContext, &rawResponse); err != nil {
-		return domain.ItineraryResponse{}, err
+	const maxRetries = 3
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if attempt > 1 {
+			log.Printf("🔄 [RETRY] TRIP_SKELETON attempt %d/%d for %s", attempt, maxRetries, trip.Destination)
+		}
+
+		var rawResponse json.RawMessage
+		// requestAIWithRAG logs: GetRenderedPrompt, OpenAI sent, OpenAI received (with token counts), Response parsed
+		if err := p.requestAIWithRAG(ctx, "TRIP_SKELETON", inputData, ragContext, &rawResponse, 2500); err != nil {
+			lastErr = err
+			continue
+		}
+
+		cleanData := cleanJSON(rawResponse)
+		if len(cleanData) < 2000 {
+			log.Printf("🔍 [SKELETON RAW] attempt %d: %s", attempt, string(cleanData))
+		} else {
+			log.Printf("🔍 [SKELETON RAW] attempt %d (truncated): %s...", attempt, string(cleanData[:2000]))
+		}
+
+		var resp domain.ItineraryResponse
+		if err := json.Unmarshal(cleanData, &resp); err != nil {
+			lastErr = fmt.Errorf("skeleton parse error: %w", err)
+			continue
+		}
+
+		// Fallback: if activity title is empty but place_name exists, use place_name
+		for i := range resp.Itinerary {
+			for j := range resp.Itinerary[i].Activities {
+				act := &resp.Itinerary[i].Activities[j]
+				if strings.TrimSpace(act.Activity) == "" && strings.TrimSpace(act.PlaceName) != "" {
+					act.Activity = act.PlaceName
+				}
+				// Last resort: generate placeholder so validation never hard-fails
+				if strings.TrimSpace(act.Activity) == "" {
+					act.Activity = fmt.Sprintf("Aktivitas %s", act.Time)
+					log.Printf("⚠️ [SKELETON] Day %d act %d: used placeholder title", i+1, j+1)
+				}
+			}
+		}
+
+		valStart := time.Now()
+		if err := validateItineraryResponse(resp, "GenerateTripSkeleton"); err != nil {
+			lastErr = fmt.Errorf("skeleton validation failed: %w", err)
+			log.Printf("❌ [SKELETON] Validation error on attempt %d: %v", attempt, err)
+			continue
+		}
+		log.Printf("⏱️ [GEN] Validation: %dms", time.Since(valStart).Milliseconds())
+
+		// Flag activities as skeleton to trigger frontend lazy-loading
+		for i := range resp.Itinerary {
+			for j := range resp.Itinerary[i].Activities {
+				resp.Itinerary[i].Activities[j].IsSkeleton = true
+			}
+		}
+
+		log.Printf("⏱️ [GEN] GenerateTripSkeleton total (excl. DB): %dms", time.Since(startTime).Milliseconds())
+		return resp, nil
 	}
 
-	log.Printf("⏱️ [PERF] TRIP_SKELETON Request completed in: %v", time.Since(startTime))
+	return domain.ItineraryResponse{}, fmt.Errorf("skeleton generation failed after %d attempts: %w", maxRetries, lastErr)
+}
 
-	cleanData := cleanJSON(rawResponse)
+// FetchRAGContext is the public wrapper around fetchLocalKnowledge for use by other service methods.
+func (p *AIPlanner) FetchRAGContext(ctx context.Context, city, style string, tripDays int) string {
+	return p.fetchLocalKnowledge(ctx, city, style, tripDays)
+}
+
+// GenerateSkeletonStreaming is the streaming variant of GenerateTripSkeleton.
+// It accepts a pre-fetched ragContext so RAG and streaming can be parallelised by the caller.
+// Returns the parsed ItineraryResponse once all chunks have been received.
+func (p *AIPlanner) GenerateSkeletonStreaming(ctx context.Context, trip domain.Trip, ragContext string) (domain.ItineraryResponse, error) {
+	startTime := time.Now()
+
+	inputData := map[string]interface{}{"Trip": trip}
+
+	promptStart := time.Now()
+	sysPrompt, err := p.promptSvc.GetRenderedPrompt(ctx, "TRIP_SKELETON", inputData)
+	if err != nil {
+		return domain.ItineraryResponse{}, fmt.Errorf("render prompt error: %w", err)
+	}
+	if ragContext != "" {
+		sysPrompt = ragContext + "\n\n" + sysPrompt
+	}
+	log.Printf("⏱️ [GEN:STREAM] GetRenderedPrompt: %dms", time.Since(promptStart).Milliseconds())
+
+	userDataBytes, _ := json.Marshal(inputData)
+	userContent := fmt.Sprintf("Here is the trip context data:\n%s", string(userDataBytes))
+
+	req := openai.ChatCompletionRequest{
+		Model: "gpt-4o-mini",
+		Messages: []openai.ChatCompletionMessage{
+			{Role: openai.ChatMessageRoleSystem, Content: sysPrompt},
+			{Role: openai.ChatMessageRoleUser, Content: userContent},
+		},
+		Temperature:    0.7,
+		MaxTokens:      2500,
+		ResponseFormat: &openai.ChatCompletionResponseFormat{Type: openai.ChatCompletionResponseFormatTypeJSONObject},
+	}
+
+	aiStart := time.Now()
+	log.Printf("⏱️ [GEN:STREAM] OpenAI stream started")
+	stream, err := p.client.CreateChatCompletionStream(ctx, req)
+	if err != nil {
+		return domain.ItineraryResponse{}, fmt.Errorf("stream create error: %w", err)
+	}
+	defer stream.Close()
+
+	var fullContent strings.Builder
+	firstChunk := true
+	for {
+		chunk, err := stream.Recv()
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			return domain.ItineraryResponse{}, fmt.Errorf("stream recv error: %w", err)
+		}
+		if len(chunk.Choices) > 0 {
+			delta := chunk.Choices[0].Delta.Content
+			if delta != "" && firstChunk {
+				log.Printf("⏱️ [GEN:STREAM] First chunk received: %dms", time.Since(aiStart).Milliseconds())
+				firstChunk = false
+			}
+			fullContent.WriteString(delta)
+		}
+	}
+	log.Printf("⏱️ [GEN:STREAM] Stream complete: %dms | content_len=%d", time.Since(aiStart).Milliseconds(), fullContent.Len())
+
+	cleanData := cleanJSON([]byte(fullContent.String()))
+	if len(cleanData) < 2000 {
+		log.Printf("🔍 [STREAM RAW]: %s", string(cleanData))
+	} else {
+		log.Printf("🔍 [STREAM RAW] (truncated): %s...", string(cleanData[:2000]))
+	}
+
 	var resp domain.ItineraryResponse
 	if err := json.Unmarshal(cleanData, &resp); err != nil {
-		return domain.ItineraryResponse{}, fmt.Errorf("skeleton parse error: %w", err)
+		return domain.ItineraryResponse{}, fmt.Errorf("parse error: %w", err)
 	}
 
-	// Flag activities as skeleton to trigger frontend lazy-loading
+	// Fallback for empty activity titles
+	for i := range resp.Itinerary {
+		for j := range resp.Itinerary[i].Activities {
+			act := &resp.Itinerary[i].Activities[j]
+			if strings.TrimSpace(act.Activity) == "" && strings.TrimSpace(act.PlaceName) != "" {
+				act.Activity = act.PlaceName
+			}
+			if strings.TrimSpace(act.Activity) == "" {
+				act.Activity = fmt.Sprintf("Aktivitas %s", act.Time)
+			}
+		}
+	}
+
+	if err := validateItineraryResponse(resp, "GenerateSkeletonStreaming"); err != nil {
+		return domain.ItineraryResponse{}, fmt.Errorf("validation failed: %w", err)
+	}
+
 	for i := range resp.Itinerary {
 		for j := range resp.Itinerary[i].Activities {
 			resp.Itinerary[i].Activities[j].IsSkeleton = true
 		}
 	}
 
+	log.Printf("⏱️ [GEN:STREAM] GenerateSkeletonStreaming total: %dms", time.Since(startTime).Milliseconds())
 	return resp, nil
 }
 
@@ -924,7 +1115,11 @@ func (p *AIPlanner) GenerateTripLogistics(ctx context.Context, trip domain.Trip)
 		"Destination": trip.Destination,
 	}
 
-	if err := p.requestAI(ctx, "TRIP_LOGISTICS", inputData, &rawResponse); err != nil {
+	// ── RAG INJECTION ── Local knowledge improves accommodation area recommendations
+	// and transport operator hints with destination-specific context.
+	ragContext := p.fetchLocalKnowledge(ctx, trip.Destination, trip.Style, trip.TripDays)
+
+	if err := p.requestAIWithRAG(ctx, "TRIP_LOGISTICS", inputData, ragContext, &rawResponse, 0); err != nil {
 		return domain.TripLogisticsResponse{}, err
 	}
 
@@ -935,8 +1130,28 @@ func (p *AIPlanner) GenerateTripLogistics(ctx context.Context, trip domain.Trip)
 	if err := json.Unmarshal(cleanData, &resp); err != nil {
 		return domain.TripLogisticsResponse{}, fmt.Errorf("logistics parse error: %w", err)
 	}
+	if err := validateLogisticsResponse(resp, "GenerateTripLogistics"); err != nil {
+		return domain.TripLogisticsResponse{}, fmt.Errorf("logistics validation failed: %w", err)
+	}
 
 	return resp, nil
+}
+
+// GenerateTransportOnDemand generates transport_options given an origin city (MT-79).
+func (p *AIPlanner) GenerateTransportOnDemand(ctx context.Context, originCity, destination string, tripDays int) ([]domain.TransportOption, error) {
+	inputData := map[string]interface{}{
+		"OriginCity":  originCity,
+		"Destination": destination,
+		"TripDays":    tripDays,
+	}
+
+	var result struct {
+		TransportOptions []domain.TransportOption `json:"transport_options"`
+	}
+	if err := p.requestAI(ctx, "TRIP_TRANSPORT", inputData, &result); err != nil {
+		return nil, fmt.Errorf("TRIP_TRANSPORT ai error: %w", err)
+	}
+	return result.TransportOptions, nil
 }
 
 // GenerateTripOverview (Phase 1): Fast-track generation of high-level details

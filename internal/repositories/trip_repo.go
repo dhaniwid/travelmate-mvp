@@ -248,6 +248,25 @@ func (r *TripRepository) GetAllTrips(ctx context.Context) ([]domain.Trip, error)
 	return trips, nil
 }
 
+// UpdateTripOrigin updates the origin column of a trip (MT-79).
+func (r *TripRepository) UpdateTripOrigin(ctx context.Context, tripID, origin string) error {
+	_, err := r.DB.ExecContext(ctx, `UPDATE trips SET origin = $1 WHERE id = $2`, origin, tripID)
+	return err
+}
+
+// UpdateTransportOptions patches only the transport_options field in plan_data (MT-79).
+func (r *TripRepository) UpdateTransportOptions(ctx context.Context, tripID string, options []domain.TransportOption) error {
+	optJSON, err := json.Marshal(options)
+	if err != nil {
+		return fmt.Errorf("marshal transport options: %w", err)
+	}
+	_, err = r.DB.ExecContext(ctx,
+		`UPDATE trips SET plan_data = jsonb_set(COALESCE(plan_data, '{}'), '{transport_options}', $1::jsonb) WHERE id = $2`,
+		optJSON, tripID,
+	)
+	return err
+}
+
 func (r *TripRepository) SaveTripPlan(ctx context.Context, trip domain.Trip, plan domain.TripPlan) error {
 	log.Printf("DEBUG: Arrival Guide Present? %v | Packing List: %d items", plan.ArrivalGuide != nil, len(plan.PackingList))
 
@@ -385,9 +404,11 @@ func (r *TripRepository) Create(ctx context.Context, trip *domain.Trip) error {
 	)
 
 	if err != nil {
+		log.Printf("❌ [REPO CREATE] Insert failed for trip %s: %v", trip.ID, err)
 		return fmt.Errorf("failed to insert trip: %w", err)
 	}
 
+	log.Printf("✅ [REPO CREATE] Trip %s inserted successfully", trip.ID)
 	return nil
 }
 
@@ -485,12 +506,13 @@ func (r *TripRepository) ListTripsByUser(ctx context.Context, userID string) ([]
 	// 2. An accepted collaborator
 	query := `
         SELECT DISTINCT
-            t.id, t.user_id, t.location_id, t.destination, t.origin, 
-            t.start_date, t.trip_days, t.style,  
-            t.is_public, t.created_at, t.status, t.enrichment_status, t.itinerary_status
+            t.id, t.user_id, t.location_id, t.destination, t.origin,
+            t.start_date, t.trip_days, t.style,
+            t.is_public, t.created_at, t.status, t.enrichment_status, t.itinerary_status,
+            COALESCE(t.travel_mode_active, false)
         FROM trips t
         LEFT JOIN trip_collaborators tc ON t.id = tc.trip_id
-        WHERE t.user_id = $1 
+        WHERE t.user_id = $1
            OR (tc.user_id = $1 AND tc.status = 'accepted')
         ORDER BY t.created_at DESC
     `
@@ -513,6 +535,7 @@ func (r *TripRepository) ListTripsByUser(ctx context.Context, userID string) ([]
 			&t.ID, &t.UserID, &locID, &t.Destination, &t.Origin,
 			&t.StartDate, &t.TripDays, &t.Style,
 			&t.IsPublic, &t.CreatedAt, &t.Status, &enrichmentStatus, &itineraryStatus,
+			&t.TravelModeActive,
 		)
 		if err != nil {
 			return nil, err
@@ -581,6 +604,22 @@ func (r *TripRepository) CountUserTrips(ctx context.Context, userID string) (int
 		return 0, err
 	}
 	return count, nil
+}
+
+// ActivateTravelMode sets travel_mode_active = true for a trip owned by userID.
+func (r *TripRepository) ActivateTravelMode(ctx context.Context, tripID, userID string) error {
+	res, err := r.DB.ExecContext(ctx,
+		`UPDATE trips SET travel_mode_active = true WHERE id = $1 AND user_id = $2`,
+		tripID, userID,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("trip not found or access denied")
+	}
+	return nil
 }
 
 // getCollaboratorsForTrip is a helper method to fetch collaborators for a trip

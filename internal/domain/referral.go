@@ -61,11 +61,11 @@ type MilestoneReward struct {
 
 // Milestone tier constants
 const (
-	TierBronze   = "bronze"
-	TierSilver   = "silver"
-	TierGold     = "gold"
-	TierPlatinum = "platinum"
-	TierDiamond  = "diamond"
+	TierBronze   = "BRONZE"
+	TierSilver   = "SILVER"
+	TierGold     = "GOLD"
+	TierPlatinum = "PLATINUM"
+	TierDiamond  = "DIAMOND"
 )
 
 // Referral Status Constants
@@ -73,3 +73,22 @@ const (
 	ReferralStatusPending   = "pending"
 	ReferralStatusCompleted = "completed"
 )
+
+// AchievementProgressItem represents progress toward a single badge.
+type AchievementProgressItem struct {
+	Tier            string `json:"tier"`
+	BadgeName       string `json:"badge_name"`
+	Icon            string `json:"icon"`
+	ReferralsNeeded int    `json:"referrals_needed"`
+	CurrentCount    int    `json:"current_count"`
+	Remaining       int    `json:"remaining"`
+	Unlocked        bool   `json:"unlocked"`
+	UnlockedAt      *time.Time `json:"unlocked_at,omitempty"`
+}
+
+// AchievementProgressResponse is returned by GET /api/v1/users/me/achievement-progress.
+type AchievementProgressResponse struct {
+	CurrentReferrals int                       `json:"current_referrals"`
+	Items            []AchievementProgressItem `json:"items"`
+	AllUnlocked      bool                      `json:"all_unlocked"`
+}

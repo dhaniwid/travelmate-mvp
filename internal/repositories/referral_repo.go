@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"travelmate/internal/domain"
 )
 
@@ -185,11 +186,11 @@ func (r *ReferralRepository) GetUserAchievements(ctx context.Context, userID str
 		return nil, err
 	}
 
-	// Parse JSONB array
 	var achievements []domain.Achievement
 	if len(achievementsJSON) > 0 && string(achievementsJSON) != "[]" {
-		// In production, use json.Unmarshal here
-		// For now, returning empty array as placeholder
+		if err := json.Unmarshal(achievementsJSON, &achievements); err != nil {
+			return nil, err
+		}
 	}
 	return achievements, nil
 }

@@ -3,10 +3,27 @@ package services
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 	"travelmate/internal/domain"
 
 	"github.com/jung-kurt/gofpdf"
 )
+
+func formatRupiah(amount int) string {
+	s := strconv.Itoa(amount)
+	n := len(s)
+	if n <= 3 {
+		return "IDR " + s
+	}
+	var result []byte
+	for i, c := range s {
+		if i > 0 && (n-i)%3 == 0 {
+			result = append(result, '.')
+		}
+		result = append(result, byte(c))
+	}
+	return "IDR " + string(result)
+}
 
 type PDFService struct{}
 
@@ -108,7 +125,7 @@ func (s *PDFService) GenerateTripPDF(trip domain.Trip, plan domain.TripPlan) ([]
 	// Helper for budget row
 	drawBudgetRow := func(label string, amount int) {
 		pdf.Cell(100, 8, label)
-		pdf.Cell(0, 8, fmt.Sprintf("IDR %d", amount)) // Simple formatter
+		pdf.Cell(0, 8, formatRupiah(amount))
 		pdf.Ln(8)
 	}
 

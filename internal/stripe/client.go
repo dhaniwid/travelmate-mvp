@@ -5,8 +5,10 @@ import (
 
 	"github.com/stripe/stripe-go/v78"
 	"github.com/stripe/stripe-go/v78/checkout/session"
-	"github.com/stripe/stripe-go/v78/webhook"
 )
+
+// NOTE: This package is retained because CreateCheckoutSession is still active.
+// TODO MIR-018: Replace Stripe checkout with Mayar.id payment link / invoice API.
 
 type Client struct {
 	SecretKey     string
@@ -61,7 +63,3 @@ func (c *Client) CreateCheckoutSession(userID, email, priceID string) (string, e
 	return sess.URL, nil
 }
 
-// ConstructEvent validates and parses webhook events
-func (c *Client) ConstructEvent(payload []byte, signature string) (stripe.Event, error) {
-	return webhook.ConstructEvent(payload, signature, c.WebhookSecret)
-}

@@ -1,0 +1,1 @@
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS travel_mode_active BOOLEAN DEFAULT false;

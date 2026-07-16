@@ -51,22 +51,17 @@ func (h *TripHandler) CreateTripStream(c *gin.Context) {
 
 	log.Printf("Creating trip for UserID: %s", req.UserID)
 
-	// Quota Enforcement for Registered Users
-	if req.UserID != "" && req.UserID != "guest" {
-		allowed, err := h.SubService.CheckQuotaAvailability(c.Request.Context(), req.UserID)
+	// Duration gate: FREE users limited to 3 days max
+	if req.UserID != "" && req.UserID != "guest" && req.TripDays > 3 {
+		isPro, err := h.SubService.IsPROUser(c.Request.Context(), req.UserID)
 		if err != nil {
-			log.Printf("Quota check error: %v", err)
-		} else if !allowed {
+			log.Printf("IsPROUser check error: %v", err)
+		} else if !isPro {
 			c.JSON(http.StatusForbidden, domain.APIError{
-				Code:    "quota_exceeded",
-				Message: "Monthly trip generation limit reached. Upgrade to PRO for unlimited planning!",
+				Code:    "free_tier_limit",
+				Message: "Trip lebih dari 3 hari tersedia di PRO",
 			})
 			return
-		}
-
-		// Increment Quota
-		if err := h.SubService.IncrementQuota(c.Request.Context(), req.UserID); err != nil {
-			log.Printf("Failed to increment quota for %s: %v", req.UserID, err)
 		}
 	}
 
@@ -102,28 +97,24 @@ func (h *TripHandler) CreateTripAsync(c *gin.Context) {
 		return
 	}
 
-	// Quota Enforcement for Registered Users
-	if req.UserID != "" && req.UserID != "guest" {
-		allowed, err := h.SubService.CheckQuotaAvailability(c.Request.Context(), req.UserID)
+	// Duration gate: FREE users limited to 3 days max
+	if req.UserID != "" && req.UserID != "guest" && req.TripDays > 3 {
+		isPro, err := h.SubService.IsPROUser(c.Request.Context(), req.UserID)
 		if err != nil {
-			log.Printf("Quota check error: %v", err)
-		} else if !allowed {
+			log.Printf("IsPROUser check error: %v", err)
+		} else if !isPro {
 			c.JSON(http.StatusForbidden, domain.APIError{
-				Code:    "quota_exceeded",
-				Message: "Monthly trip generation limit reached. Upgrade to PRO for unlimited planning!",
+				Code:    "free_tier_limit",
+				Message: "Trip lebih dari 3 hari tersedia di PRO",
 			})
 			return
-		}
-
-		// Increment Quota
-		if err := h.SubService.IncrementQuota(c.Request.Context(), req.UserID); err != nil {
-			log.Printf("Failed to increment quota for %s: %v", req.UserID, err)
 		}
 	}
 
 	// Call Service
 	trip, err := h.Service.GenerateTripAsync(c.Request.Context(), req)
 	if err != nil {
+		log.Printf("❌ [TRIPS HANDLER] GenerateTripAsync error: %v", err)
 		c.JSON(http.StatusInternalServerError, domain.APIError{
 			Code:    "generation_error",
 			Message: err.Error(),
@@ -149,6 +140,10 @@ func (h *TripHandler) GetTrip(c *gin.Context) {
 			Code:    "internal_error",
 			Message: err.Error(),
 		})
+		return
+	}
+	if result == nil {
+		c.JSON(http.StatusNotFound, domain.APIError{Code: "not_found", Message: "Trip not found"})
 		return
 	}
 
@@ -186,6 +181,9 @@ func (h *TripHandler) GetTrip(c *gin.Context) {
 		fmt.Printf("✅ ACCESS GRANTED: TripID=%s | RequestorID=%s | IsOwner=%v | HasCollabAccess=%v\n",
 			id, userID, isOwner, hasCollabAccess)
 	}
+
+	// Hidden gems are gated pending content curation (Phase 2) — strip AI-generated content
+	result.Plan.HiddenGem = nil
 
 	c.JSON(http.StatusOK, result)
 }
@@ -283,32 +281,6 @@ func (h *TripHandler) SaveTrip(c *gin.Context) {
 		PlanData: req.PlanData,
 	}
 
-	// 🛡️ SECURITY: CRITICAL QUOTA CHECK (Fix Bypass)
-	// Check if user has quota BEFORE saving
-	quota, err := h.SubService.GetUserQuota(c.Request.Context(), userID, "")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, domain.APIError{Code: "internal_error", Message: "Quota check failed"})
-		return
-	}
-
-	tripCount, err := h.Service.CountUserTrips(c.Request.Context(), userID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, domain.APIError{Code: "internal_error", Message: "Failed to verify trip count"})
-		return
-	}
-
-	// Rule: If quota is restricted and limit reached
-	if !quota.IsUnlimited && tripCount >= quota.QuotaLimit {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error":        "quota_exceeded",
-			"message":      fmt.Sprintf("You have reached your free account limit (%d trips). Upgrade to Pro for unlimited trips!", quota.QuotaLimit),
-			"current_tier": "FREE",
-			"trip_count":   tripCount,
-			"limit":        quota.QuotaLimit,
-		})
-		return
-	}
-
 	// Panggil Service
 	if err := h.Service.SaveUserTrip(c.Request.Context(), trip); err != nil {
 		c.JSON(http.StatusInternalServerError, domain.APIError{
@@ -318,22 +290,56 @@ func (h *TripHandler) SaveTrip(c *gin.Context) {
 		return
 	}
 
-	// 🛡️ SECURITY: INCREMENT QUOTA ON CLAIM
-	// Since guest generation often bypasses the immediate increment (or uses guest bucket),
-	// we must count the trip against the user's permanent quota here.
-	if userID != "guest" {
-		if err := h.SubService.IncrementQuota(c.Request.Context(), userID); err != nil {
-			log.Printf("⚠️ [QUOTA] Failed to increment on claim for %s: %v", userID, err)
-		} else {
-			log.Printf("📊 [QUOTA] Incremented for %s on trip claim", userID)
-		}
-	}
-
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Trip successfully saved to your history! 🚀",
 		"trip_id": req.ID,
 		"status":  "UPCOMING",
 	})
+}
+
+// ActivateTravelMode handles POST /api/v1/trips/:id/travel-mode
+func (h *TripHandler) ActivateTravelMode(c *gin.Context) {
+	tripID := c.Param("id")
+	userID := c.GetString("userID")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, domain.APIError{Code: "unauthorized", Message: "Missing User Context"})
+		return
+	}
+	if err := h.Service.ActivateTravelMode(c.Request.Context(), tripID, userID); err != nil {
+		c.JSON(http.StatusBadRequest, domain.APIError{Code: "bad_request", Message: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "travel_mode_active": true})
+}
+
+// GenerateTransportOnDemand POST /trips/:id/logistics/transport (MT-79)
+func (h *TripHandler) GenerateTransportOnDemand(c *gin.Context) {
+	tripID := c.Param("id")
+	userID := c.GetString("userID")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, domain.APIError{Code: "unauthorized", Message: "Missing User Context"})
+		return
+	}
+
+	var req struct {
+		OriginCity string `json:"origin_city" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, domain.APIError{Code: "bad_request", Message: "origin_city is required"})
+		return
+	}
+
+	options, err := h.Service.GenerateTransportOnDemand(c.Request.Context(), tripID, req.OriginCity, userID)
+	if err != nil {
+		if err.Error() == "unauthorized" {
+			c.JSON(http.StatusForbidden, domain.APIError{Code: "forbidden", Message: "Access denied"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, domain.APIError{Code: "generation_failed", Message: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true, "transport_options": options})
 }
 
 // DeleteTrip menangani DELETE /api/v1/trips/:id
@@ -494,6 +500,44 @@ func (h *TripHandler) ExportPDF(c *gin.Context) {
 	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
 
+// GetAccommodation handles GET /api/v1/trips/:id/accommodation
+// Returns the AI-generated accommodation recommendations for a trip.
+// Auth: same IDOR + collaborator check as GetTrip.
+func (h *TripHandler) GetAccommodation(c *gin.Context) {
+	tripID := c.Param("id")
+	userID := c.GetString("userID")
+
+	result, err := h.Service.GetTrip(c.Request.Context(), tripID)
+	if err != nil || result == nil {
+		c.JSON(http.StatusNotFound, domain.APIError{Code: "not_found", Message: "Trip not found"})
+		return
+	}
+
+	// Mirror the full auth check from GetTrip: owner OR collaborator.
+	if result.Trip.UserID != "" && result.Trip.UserID != "guest" {
+		isOwner := result.Trip.UserID == userID
+		hasCollabAccess := false
+		if !isOwner && h.CollabRepo != nil {
+			hasCollabAccess, _ = h.CollabRepo.HasAccess(c.Request.Context(), tripID, userID)
+		}
+		if !isOwner && !hasCollabAccess {
+			c.JSON(http.StatusForbidden, domain.APIError{Code: "forbidden", Message: "Access denied"})
+			return
+		}
+	}
+
+	options := result.Plan.AccommodationOptions
+	if options == nil {
+		options = []domain.AccommodationOption{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"trip_id":  tripID,
+		"options":  options,
+		"is_ready": len(options) > 0,
+	})
+}
+
 // EnrichActivity handles GET /api/v1/trips/:id/enrich/:day_index/:activity_index
 func (h *TripHandler) EnrichActivity(c *gin.Context) {
 	tripID := c.Param("id")
@@ -602,6 +646,59 @@ func (h *TripHandler) GetAddActivitySuggestions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": suggestions})
+}
+
+// CreateTripSSE handles POST /api/v1/trips/generate/stream
+// Inserts a trip stub immediately, emits "trip_created" SSE so the frontend can navigate
+// within ~1–2s, then streams AI generation and emits "skeleton_complete" when done.
+func (h *TripHandler) CreateTripSSE(c *gin.Context) {
+	var req domain.Trip
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, domain.APIError{Code: "validation_error", Message: err.Error()})
+		return
+	}
+
+	// Duration gate: FREE users limited to 3 days max
+	if req.UserID != "" && req.UserID != "guest" && req.TripDays > 3 {
+		isPro, err := h.SubService.IsPROUser(c.Request.Context(), req.UserID)
+		if err != nil {
+			log.Printf("IsPROUser check error: %v", err)
+		} else if !isPro {
+			c.JSON(http.StatusForbidden, domain.APIError{
+				Code:    "free_tier_limit",
+				Message: "Trip lebih dari 3 hari tersedia di PRO",
+			})
+			return
+		}
+	}
+
+	// SSE headers
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+
+	events := make(chan string, 8)
+
+	// Run generation in a goroutine; closes events when done
+	go func() {
+		defer close(events)
+		h.Service.GenerateTripSSE(c.Request.Context(), req, events)
+	}()
+
+	// Stream events to client
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return false // channel closed
+			}
+			fmt.Fprint(w, event)
+			return true
+		case <-c.Request.Context().Done():
+			return false
+		}
+	})
 }
 
 // DeleteActivity handles DELETE /api/v1/trips/:id/activities/:day_index/:activity_index

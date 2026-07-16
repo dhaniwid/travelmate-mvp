@@ -19,11 +19,12 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 // GetUserByClerkID fetches a user by their Clerk ID (user_id)
 func (r *UserRepository) GetUserByClerkID(ctx context.Context, clerkID string) (*domain.User, error) {
 	query := `
-		SELECT 
-			id, user_id, email, name, 
-			subscription_tier, subscription_status, 
+		SELECT
+			id, user_id, email, name,
+			subscription_tier, subscription_status,
 			subscription_started_at, subscription_ends_at,
 			stripe_customer_id, stripe_subscription_id,
+			referral_code, bonus_trip_quota,
 			created_at, updated_at
 		FROM users
 		WHERE user_id = $1
@@ -33,12 +34,14 @@ func (r *UserRepository) GetUserByClerkID(ctx context.Context, clerkID string) (
 	var subStarted, subEnded sql.NullTime
 	var stripeCustID, stripeSubID sql.NullString
 	var email, name sql.NullString
+	var referralCode sql.NullString
 
 	err := r.DB.QueryRowContext(ctx, query, clerkID).Scan(
 		&user.ID, &user.UserID, &email, &name,
 		&user.SubscriptionTier, &user.SubscriptionStatus,
 		&subStarted, &subEnded,
 		&stripeCustID, &stripeSubID,
+		&referralCode, &user.BonusTripQuota,
 		&user.CreatedAt, &user.UpdatedAt,
 	)
 
@@ -66,6 +69,9 @@ func (r *UserRepository) GetUserByClerkID(ctx context.Context, clerkID string) (
 	}
 	if stripeSubID.Valid {
 		user.StripeSubscriptionID = stripeSubID.String
+	}
+	if referralCode.Valid {
+		user.ReferralCode = referralCode.String
 	}
 
 	return &user, nil
