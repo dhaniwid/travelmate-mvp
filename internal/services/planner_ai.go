@@ -597,7 +597,7 @@ func (p *AIPlanner) requestAIWithRAG(ctx context.Context, sysKey string, data in
 	}
 
 	req := openai.ChatCompletionRequest{
-		Model: "gpt-4o-mini",
+		Model: ModelFast,
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: sysPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: userContent},
@@ -720,7 +720,7 @@ func (p *AIPlanner) requestAI(ctx context.Context, sysKey string, data interface
 	}
 
 	resp, err := p.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: "gpt-4o-mini",
+		Model: ModelFast,
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: sysPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: userContent},
@@ -1021,13 +1021,16 @@ func (p *AIPlanner) GenerateSkeletonStreaming(ctx context.Context, trip domain.T
 	if ragContext != "" {
 		sysPrompt = ragContext + "\n\n" + sysPrompt
 	}
+	if strings.Contains(trip.Style, "Wajib Kunjungi:") || strings.Contains(trip.Style, "MUST INCLUDE") {
+		sysPrompt += fmt.Sprintf("\n\nCRITICAL USER REQUIREMENT:\nThe user has explicitly selected specific places in their preferences (%s).\nYou MUST include EVERY ONE of those user-selected places in the itinerary across the %d days, and only fill remaining time slots with complementary nearby spots.", trip.Style, trip.TripDays)
+	}
 	log.Printf("⏱️ [GEN:STREAM] GetRenderedPrompt: %dms", time.Since(promptStart).Milliseconds())
 
 	userDataBytes, _ := json.Marshal(inputData)
 	userContent := fmt.Sprintf("Here is the trip context data:\n%s", string(userDataBytes))
 
 	req := openai.ChatCompletionRequest{
-		Model: "gpt-4o-mini",
+		Model: ModelFast,
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: sysPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: userContent},
@@ -1111,8 +1114,17 @@ func (p *AIPlanner) GenerateTripLogistics(ctx context.Context, trip domain.Trip)
 	log.Printf("⏱️ [PERF] Starting TRIP_LOGISTICS AI Request (Stage 3) for %s...", trip.Destination)
 
 	var rawResponse json.RawMessage
+	origin := trip.Origin
+	if origin == "" || strings.EqualFold(origin, "Anywhere") {
+		origin = "Jakarta"
+	}
 	inputData := map[string]interface{}{
+		"Origin":      origin,
 		"Destination": trip.Destination,
+		"TripDays":    trip.TripDays,
+		"Style":       trip.Style,
+		"BudgetRange": trip.BudgetRange,
+		"Trip":        trip,
 	}
 
 	// ── RAG INJECTION ── Local knowledge improves accommodation area recommendations

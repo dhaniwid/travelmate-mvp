@@ -729,7 +729,30 @@ func (s *TripService) GenerateTripSSE(ctx context.Context, trip domain.Trip, eve
 		log.Printf("🎲 [SSE] Surprise: %s", trip.Destination)
 	}
 
-	// 2. Insert stub into DB (empty plan_data) so we have a valid trip_id immediately
+	// Check if user provided a manual itinerary (Mode Susun Manual)
+	var manualItinerary []domain.ItineraryDay
+	if trip.PlanData != nil && len(trip.PlanData.Itinerary) > 0 {
+		manualItinerary = trip.PlanData.Itinerary
+		// Normalize and sort each day's activities by time
+		for dIdx := range manualItinerary {
+			for aIdx := range manualItinerary[dIdx].Activities {
+				act := &manualItinerary[dIdx].Activities[aIdx]
+				if strings.TrimSpace(act.Activity) == "" && strings.TrimSpace(act.PlaceName) != "" {
+					act.Activity = act.PlaceName
+				}
+				if strings.TrimSpace(act.PlaceName) == "" && strings.TrimSpace(act.Activity) != "" {
+					act.PlaceName = act.Activity
+				}
+				act.IsSkeleton = true
+			}
+			sort.Slice(manualItinerary[dIdx].Activities, func(i, j int) bool {
+				return manualItinerary[dIdx].Activities[i].Time < manualItinerary[dIdx].Activities[j].Time
+			})
+		}
+		log.Printf("🗓️ [SSE] Manual itinerary detected (%d days). Preserving user schedule without AI overwrite.", len(manualItinerary))
+	}
+
+	// 2. Insert stub into DB so we have a valid trip_id immediately
 	trip.Status = "DRAFT"
 	trip.EnrichmentStatus = domain.EnrichmentStatusPending
 	trip.ItineraryStatus = domain.ItineraryStatusGenerating
@@ -745,35 +768,49 @@ func (s *TripService) GenerateTripSSE(ctx context.Context, trip domain.Trip, eve
 	sseEvent(events, "trip_created", map[string]interface{}{"trip_id": trip.ID})
 	log.Printf("⏱️ [SSE] trip_created emitted: %dms", time.Since(startTime).Milliseconds())
 
-	// 4. Parallel: location enrichment + RAG fetch (neither blocks the other)
+	// 4. Parallel: location enrichment + RAG fetch (only fetch RAG if AI generation is needed)
 	var enrichedTrip domain.Trip
 	var ragContext string
 	var initWg sync.WaitGroup
-	initWg.Add(2)
-
-	go func() {
-		defer initWg.Done()
-		enrichedTrip = s.enrichLocation(ctx, trip)
-	}()
-
-	go func() {
-		defer initWg.Done()
-		ragStart := time.Now()
-		ragContext = s.Planner.FetchRAGContext(ctx, trip.Destination, trip.Style, trip.TripDays)
-		log.Printf("⏱️ [SSE] FetchRAGContext: %dms", time.Since(ragStart).Milliseconds())
-	}()
+	if len(manualItinerary) > 0 {
+		initWg.Add(1)
+		go func() {
+			defer initWg.Done()
+			enrichedTrip = s.enrichLocation(ctx, trip)
+		}()
+	} else {
+		initWg.Add(2)
+		go func() {
+			defer initWg.Done()
+			enrichedTrip = s.enrichLocation(ctx, trip)
+		}()
+		go func() {
+			defer initWg.Done()
+			ragStart := time.Now()
+			ragContext = s.Planner.FetchRAGContext(ctx, trip.Destination, trip.Style, trip.TripDays)
+			log.Printf("⏱️ [SSE] FetchRAGContext: %dms", time.Since(ragStart).Milliseconds())
+		}()
+	}
 
 	initWg.Wait()
 	trip.LocationID = enrichedTrip.LocationID
 	trip.Destination = enrichedTrip.Destination
 	sseEvent(events, "rag_complete", nil)
 
-	// 5. OpenAI streaming
-	itiRes, err := s.Planner.GenerateSkeletonStreaming(ctx, trip, ragContext)
-	if err != nil {
-		log.Printf("❌ [SSE] GenerateSkeletonStreaming failed: %v", err)
-		sseEvent(events, "error", map[string]interface{}{"message": "Generation failed: " + err.Error()})
-		return
+	// 5. Either preserve user's manual itinerary OR run OpenAI streaming
+	var itiRes domain.ItineraryResponse
+	if len(manualItinerary) > 0 {
+		itiRes = domain.ItineraryResponse{
+			Itinerary: manualItinerary,
+		}
+	} else {
+		var err error
+		itiRes, err = s.Planner.GenerateSkeletonStreaming(ctx, trip, ragContext)
+		if err != nil {
+			log.Printf("❌ [SSE] GenerateSkeletonStreaming failed: %v", err)
+			sseEvent(events, "error", map[string]interface{}{"message": "Generation failed: " + err.Error()})
+			return
+		}
 	}
 
 	// 6. Build skeleton plan + update DB

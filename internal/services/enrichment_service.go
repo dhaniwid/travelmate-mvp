@@ -59,9 +59,7 @@ func (s *EnrichmentService) EnrichTrip(ctx context.Context, tripID string) {
 	enrichedCount := 0
 	var mu sync.Mutex
 
-	// Time generation: Start at 09:00 for each day
 	for dayIdx, day := range plan.Itinerary {
-		currentTime := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC) // 09:00 AM start
 		for actIdx, activity := range day.Activities {
 			// Skip if already enriched or generic
 			if activity.PlaceID != "" || activity.Type == "Logistics" {
@@ -166,13 +164,23 @@ func (s *EnrichmentService) EnrichTrip(ctx context.Context, tripID string) {
 				}
 			}(dayIdx, actIdx, activity, trip.Destination)
 		}
+	}
 
-		// NEW: Assign times to activities after enrichment
+	wg.Wait()
+
+	// Assign fallback times ONLY for activities that do not already have a valid HH:MM time
+	for dayIdx, day := range plan.Itinerary {
+		currentTime := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC) // 09:00 AM start
 		for aIdx := range day.Activities {
-			plan.Itinerary[dayIdx].Activities[aIdx].Time = currentTime.Format("15:04")
+			existingTime := strings.TrimSpace(plan.Itinerary[dayIdx].Activities[aIdx].Time)
+			if parsed, err := time.Parse("15:04", existingTime); err == nil {
+				// Preserve user's or AI's scheduled time and advance currentTime from it
+				currentTime = time.Date(2026, 1, 1, parsed.Hour(), parsed.Minute(), 0, 0, time.UTC)
+			} else {
+				plan.Itinerary[dayIdx].Activities[aIdx].Time = currentTime.Format("15:04")
+			}
 
-			// Increment time for next activity
-			// Meals get 2 hours, other activities get 3 hours
+			// Increment time for next activity if next activity needs fallback
 			actType := plan.Itinerary[dayIdx].Activities[aIdx].Type
 			if strings.Contains(strings.ToLower(actType), "culinary") || strings.Contains(strings.ToLower(actType), "food") {
 				currentTime = currentTime.Add(time.Hour * 2)
@@ -180,14 +188,11 @@ func (s *EnrichmentService) EnrichTrip(ctx context.Context, tripID string) {
 				currentTime = currentTime.Add(time.Hour * 3)
 			}
 
-			// Don't schedule activities past 21:00
 			if currentTime.Hour() > 21 {
-				break
+				currentTime = time.Date(2026, 1, 1, 21, 0, 0, 0, time.UTC)
 			}
 		}
 	}
-
-	wg.Wait()
 
 	// 3. Save Context Lat/Long (from first activity or destination)
 	// (Optional: Set Trip Location based on result)
