@@ -28,6 +28,17 @@ var validVariants = map[string]bool{
 	VariantNeonNight:    true,
 }
 
+// prebundledSlugs lists cities whose static .webp variants are already bundled
+// in the frontend (/public/assets/landmarks/), so production containers without
+// local access to the frontend's public folder still resolve them as cache hits.
+var prebundledSlugs = map[string]bool{
+	"bali":       true,
+	"bandung":    true,
+	"jakarta":    true,
+	"semarang":   true,
+	"yogyakarta": true,
+}
+
 // ── Prompt templates (source: miru-docs/design/landmark-prompt-templates.md) ─
 
 type tmplData struct {
@@ -98,12 +109,12 @@ var variantSuffix = map[string]map[string]string{
 	},
 }
 
-// variantSize maps variant name to the image size string for the OpenAI API.
+// variantSize maps variant name to the image size string for the OpenAI DALL-E 3 API.
 func variantSize(variant string) string {
 	if variant == VariantLandscape {
-		return "1536x1024"
+		return openai.CreateImageSize1792x1024
 	}
-	return "1024x1024"
+	return openai.CreateImageSize1024x1024
 }
 
 // ── Service ──────────────────────────────────────────────────────────────────
@@ -119,9 +130,10 @@ func NewService(repo LandmarkRepository, aiClient *openai.Client) *Service {
 	return &Service{repo: repo, ai: aiClient}
 }
 
-// CheckCache returns (publicPath, true) if the image is already cached.
+// CheckCache returns (publicPath, true) if the image is already cached on disk
+// or pre-bundled in the frontend static assets.
 func (s *Service) CheckCache(slug, variant string) (string, bool) {
-	if s.repo.Exists(slug, variant) {
+	if s.repo.Exists(slug, variant) || (prebundledSlugs[slug] && validVariants[variant]) {
 		return s.repo.PublicPath(slug, variant), true
 	}
 	return "", false
@@ -190,13 +202,13 @@ func (s *Service) generate(ctx context.Context, slug, variant string) (string, e
 
 	log.Printf("[landmark] generating %s/%s (size=%s)", slug, variant, variantSize(variant))
 
-	// gpt-image-1 does not accept response_format — it always returns b64_json.
 	resp, err := s.ai.CreateImage(ctx, openai.ImageRequest{
-		Model:   "gpt-image-1",
-		Prompt:  prompt,
-		N:       1,
-		Size:    variantSize(variant),
-		Quality: "high",
+		Model:          openai.CreateImageModelDallE3,
+		Prompt:         prompt,
+		N:              1,
+		Size:           variantSize(variant),
+		Quality:        openai.CreateImageQualityHD,
+		ResponseFormat: openai.CreateImageResponseFormatB64JSON,
 	})
 	if err != nil {
 		return "", fmt.Errorf("openai CreateImage: %w", err)
