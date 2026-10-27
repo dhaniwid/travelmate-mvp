@@ -20,11 +20,8 @@ import (
 func TestSecurity_QuotaBypass(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	t.Run("Scenario A: The Free Lunch (Quota Bypass Attack)", func(t *testing.T) {
+	t.Run("Scenario A: The Free Lunch (Duration Limit Bypass Attack)", func(t *testing.T) {
 		mockSub := &MockSubService{}
-		mockSub.CheckQuotaAvailabilityFunc = func(ctx context.Context, userID string) (bool, error) {
-			return false, nil // FORBIDDEN
-		}
 
 		handler := NewTripHandler(&MockTripService{}, mockSub, nil)
 
@@ -34,6 +31,7 @@ func TestSecurity_QuotaBypass(t *testing.T) {
 		reqBody := domain.Trip{
 			Destination: "Bali",
 			UserID:      "malicious_user",
+			TripDays:    5,
 		}
 		body, _ := json.Marshal(reqBody)
 		c.Request, _ = http.NewRequest("POST", "/api/v1/trips", bytes.NewBuffer(body))
@@ -45,7 +43,7 @@ func TestSecurity_QuotaBypass(t *testing.T) {
 
 		var resp domain.APIError
 		json.Unmarshal(w.Body.Bytes(), &resp)
-		assert.Equal(t, "quota_exceeded", resp.Code)
+		assert.Equal(t, "free_tier_limit", resp.Code)
 	})
 }
 

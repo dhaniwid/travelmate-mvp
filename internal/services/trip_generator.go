@@ -755,7 +755,24 @@ func (s *TripService) GenerateTripSSE(ctx context.Context, trip domain.Trip, eve
 	// 2. Insert stub into DB so we have a valid trip_id immediately
 	trip.Status = "DRAFT"
 	trip.EnrichmentStatus = domain.EnrichmentStatusPending
-	trip.ItineraryStatus = domain.ItineraryStatusGenerating
+	if len(manualItinerary) > 0 {
+		trip.Status = "UPCOMING"
+		trip.ItineraryStatus = domain.ItineraryStatusCompleted
+		trip.PlanData = &domain.TripPlan{
+			TripID:               trip.ID,
+			Itinerary:            manualItinerary,
+			ArrivalGuide:         &domain.ArrivalGuide{},
+			BudgetBreakdown:      domain.BudgetBreakdown{},
+			PackingList:          []domain.PackingCategory{},
+			TransportOptions:     []domain.TransportOption{},
+			AccommodationOptions: []domain.AccommodationOption{},
+			Highlights:           []domain.TripHighlight{},
+			MorningBriefing:      "",
+			Tagline:              trip.Destination + " Escape",
+		}
+	} else {
+		trip.ItineraryStatus = domain.ItineraryStatusGenerating
+	}
 	trip.CreatedAt = time.Now()
 
 	if err := s.TripRepo.Create(ctx, &trip); err != nil {

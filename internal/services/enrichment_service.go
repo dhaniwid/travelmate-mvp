@@ -201,8 +201,8 @@ func (s *EnrichmentService) EnrichTrip(ctx context.Context, tripID string) {
 	s.sanitizeItinerary(plan)
 
 	// 4. Save Updates to DB
-	// 4. Save Updates to DB
 	// We always try to save because time generation and type defaults run regardless of API success
+	trip.EnrichmentStatus = domain.EnrichmentStatusCompleted
 	if err := s.TripRepo.SaveTripPlan(ctx, *trip, *plan); err != nil {
 		log.Printf("❌ [Enrichment] Failed to save updates: %v", err)
 	} else {

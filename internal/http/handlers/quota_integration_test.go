@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -20,72 +19,52 @@ import (
 func TestSaveTrip_QuotaEnforcement(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	t.Run("Free User At Limit", func(t *testing.T) {
-		// Mock Services
-		mockSub := &MockSubService{
-			GetUserQuotaFunc: func(ctx context.Context, userID, email string) (*domain.TripQuota, error) {
-				return &domain.TripQuota{UserID: userID, TripsCreated: 3, QuotaLimit: 3, IsUnlimited: false}, nil
-			},
-		}
-		mockTrip := &MockTripService{
-			CountUserTripsFunc: func(ctx context.Context, userID string) (int, error) {
-				return 3, nil
-			},
-		}
+	t.Run("Free User Duration Gate (> 3 days blocked)", func(t *testing.T) {
+		mockSub := &MockSubService{}
+		mockTrip := &MockTripService{}
 
 		handler := NewTripHandler(mockTrip, mockSub, nil)
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Set("userID", "free_user")
 
-		reqBody := map[string]interface{}{
-			"id":      "trip_4",
-			"user_id": "free_user",
+		reqBody := domain.Trip{
+			Destination: "Bali",
+			UserID:      "free_user",
+			TripDays:    4,
 		}
 		body, _ := json.Marshal(reqBody)
-		c.Request, _ = http.NewRequest("POST", "/api/trips", bytes.NewBuffer(body))
+		c.Request, _ = http.NewRequest("POST", "/api/v1/trips", bytes.NewBuffer(body))
 		c.Request.Header.Set("Content-Type", "application/json")
 
-		handler.SaveTrip(c)
+		handler.CreateTripAsync(c)
 
-		// Assert
 		assert.Equal(t, http.StatusForbidden, w.Code)
-		var resp map[string]interface{}
+		var resp domain.APIError
 		json.Unmarshal(w.Body.Bytes(), &resp)
-		assert.Equal(t, "quota_exceeded", resp["error"])
+		assert.Equal(t, "free_tier_limit", resp.Code)
 	})
 
-	t.Run("Free User Under Limit", func(t *testing.T) {
-		// Mock Services
-		mockSub := &MockSubService{
-			GetUserQuotaFunc: func(ctx context.Context, userID, email string) (*domain.TripQuota, error) {
-				return &domain.TripQuota{UserID: userID, TripsCreated: 1, QuotaLimit: 3, IsUnlimited: false}, nil
-			},
-		}
-		mockTrip := &MockTripService{
-			CountUserTripsFunc: func(ctx context.Context, userID string) (int, error) {
-				return 1, nil
-			},
-		}
+	t.Run("Free User Under Duration Limit (<= 3 days allowed)", func(t *testing.T) {
+		mockSub := &MockSubService{}
+		mockTrip := &MockTripService{}
 
 		handler := NewTripHandler(mockTrip, mockSub, nil)
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 
-		reqBody := map[string]interface{}{
-			"id":      "trip_2",
-			"user_id": "free_user",
+		reqBody := domain.Trip{
+			Destination: "Bali",
+			UserID:      "free_user",
+			TripDays:    3,
 		}
 		body, _ := json.Marshal(reqBody)
-		c.Request, _ = http.NewRequest("POST", "/api/trips", bytes.NewBuffer(body))
+		c.Request, _ = http.NewRequest("POST", "/api/v1/trips", bytes.NewBuffer(body))
 		c.Request.Header.Set("Content-Type", "application/json")
 
-		handler.SaveTrip(c)
+		handler.CreateTripAsync(c)
 
-		// It should NOT be 403. It might be 500 or 200 depending on SaveUserTrip mock,
-		// but 403 means quota check blocked it.
-		assert.NotEqual(t, http.StatusForbidden, w.Code)
+		assert.Equal(t, http.StatusOK, w.Code)
 	})
 }

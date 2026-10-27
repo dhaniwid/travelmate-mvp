@@ -45,6 +45,10 @@ func (m *MockSubService) IncrementQuota(ctx context.Context, userID string) erro
 	return nil
 }
 
+func (m *MockSubService) IsPROUser(ctx context.Context, userID string) (bool, error) {
+	return userID == "pro_user", nil
+}
+
 type MockTripService struct {
 	CountUserTripsFunc func(ctx context.Context, userID string) (int, error)
 	SaveUserTripFunc   func(ctx context.Context, trip *domain.Trip) error
@@ -56,6 +60,17 @@ func (m *MockTripService) GenerateTripStream(ctx context.Context, req domain.Tri
 
 func (m *MockTripService) GenerateTripAsync(ctx context.Context, req domain.Trip) (*domain.Trip, error) {
 	return &domain.Trip{ID: "test_trip_id"}, nil
+}
+
+func (m *MockTripService) GenerateTripSSE(ctx context.Context, req domain.Trip, events chan<- string) {
+}
+
+func (m *MockTripService) ActivateTravelMode(ctx context.Context, tripID, userID string) error {
+	return nil
+}
+
+func (m *MockTripService) GenerateTransportOnDemand(ctx context.Context, tripID, originCity, userID string) ([]domain.TransportOption, error) {
+	return nil, nil
 }
 
 func (m *MockTripService) GetTrip(ctx context.Context, id string) (*domain.TripAndPlan, error) {

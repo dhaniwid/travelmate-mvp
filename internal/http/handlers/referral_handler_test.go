@@ -61,6 +61,10 @@ func (m *MockReferralService) GetUserAchievements(ctx context.Context, userID st
 	return nil, nil
 }
 
+func (m *MockReferralService) GetAchievementProgress(ctx context.Context, userID string) (*domain.AchievementProgressResponse, error) {
+	return &domain.AchievementProgressResponse{}, nil
+}
+
 // --- Tests ---
 
 // Test 1: Claim Referral - Success (200 OK)

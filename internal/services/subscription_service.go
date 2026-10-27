@@ -140,6 +140,18 @@ func (s *SubscriptionService) GetUserQuota(ctx context.Context, userID, email st
 	return quota, nil
 }
 
+// CheckQuotaAvailability returns true if the user still has remaining trip quota (or is PRO).
+func (s *SubscriptionService) CheckQuotaAvailability(ctx context.Context, userID string) (bool, error) {
+	quota, err := s.GetUserQuota(ctx, userID, "")
+	if err != nil {
+		return false, err
+	}
+	if quota.IsUnlimited {
+		return true, nil
+	}
+	return quota.Remaining > 0, nil
+}
+
 // IsPROUser returns true if the user has an active PRO subscription.
 // Also auto-creates the user in DB if they don't exist (lazy sync).
 func (s *SubscriptionService) IsPROUser(ctx context.Context, userID string) (bool, error) {
